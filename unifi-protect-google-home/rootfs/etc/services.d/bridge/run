@@ -1,0 +1,7 @@
+#!/command/with-contenv bashio
+# ==============================================================================
+# Start the UniFi Protect → Google Home bridge.
+# ==============================================================================
+set -e
+
+exec /usr/local/bin/bridge --options /data/options.json

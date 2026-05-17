@@ -1,0 +1,144 @@
+---
+name: Release
+
+"on":
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "New version (e.g. 0.0.2). Required."
+        required: true
+  release:
+    types:
+      - published
+
+env:
+  ADDON_SLUG: unifi-protect-google-home
+  ARCHITECTURES: '["amd64"]'
+
+permissions:
+  contents: read
+
+jobs:
+  bump-and-release:
+    name: Bump version and create release
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Bump config.yaml + prepend CHANGELOG.md
+        id: bump
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.inputs.version }}"
+          CONFIG="${ADDON_SLUG}/config.yaml"
+          CHANGELOG="${ADDON_SLUG}/CHANGELOG.md"
+          yq eval -i ".version = \"${VERSION}\"" "${CONFIG}"
+          {
+            echo "## ${VERSION}"
+            echo ""
+            echo "- Release ${VERSION}."
+            echo ""
+            cat "${CHANGELOG}"
+          } > "${CHANGELOG}.tmp"
+          mv "${CHANGELOG}.tmp" "${CHANGELOG}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Commit version bump
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "Release ${{ steps.bump.outputs.version }}"
+          file_pattern: >-
+            unifi-protect-google-home/config.yaml
+            unifi-protect-google-home/CHANGELOG.md
+          branch: main
+          tagging_message: "v${{ steps.bump.outputs.version }}"
+
+      - name: Create GitHub release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: "v${{ steps.bump.outputs.version }}"
+          name: "Release ${{ steps.bump.outputs.version }}"
+          generateReleaseNotes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  init:
+    name: Initialize build matrix
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      version: ${{ steps.info.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Read add-on version
+        id: info
+        run: |
+          VERSION="$(yq eval '.version' "${ADDON_SLUG}/config.yaml")"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Get build matrix
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.03.2
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          image-name: ${{ env.ADDON_SLUG }}
+
+  build:
+    name: Build & push ${{ matrix.arch }} image
+    needs: init
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Build and push add-on image
+        uses: home-assistant/builder/actions/build-image@2026.03.2
+        with:
+          arch: ${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+          context: ./${{ env.ADDON_SLUG }}
+          push: "true"
+          version: ${{ needs.init.outputs.version }}
+
+  manifest:
+    name: Publish multi-arch manifest
+    needs:
+      - init
+      - build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+    steps:
+      - name: Publish multi-arch manifest
+        uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.03.2
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image-name: ${{ env.ADDON_SLUG }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest

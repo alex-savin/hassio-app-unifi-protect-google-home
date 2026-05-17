@@ -1,0 +1,19 @@
+# Keep the docker build context small + deterministic.
+.git
+.github
+.gitignore
+.gitattributes
+.vscode
+.idea
+*.md
+LICENSE
+
+# Test artifacts
+*.test
+coverage.out
+coverage.txt
+
+# Local development
+data/
+bin/
+dist/

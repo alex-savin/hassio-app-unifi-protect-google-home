@@ -1,0 +1,12 @@
+#!/command/with-contenv bashio
+# ==============================================================================
+# Take down the S6 supervision tree when the bridge fails.
+# ==============================================================================
+declare exit_code
+readonly exit_code=${1}
+
+bashio::log.warning "Halting add-on: bridge service exited with code ${exit_code}"
+
+if [[ ${exit_code} -ne 0 && ${exit_code} -ne 256 ]]; then
+    /run/s6/basedir/bin/halt
+fi

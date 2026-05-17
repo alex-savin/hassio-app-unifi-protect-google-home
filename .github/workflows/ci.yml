@@ -1,0 +1,191 @@
+---
+name: CI
+
+"on":
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "*.md"
+      - "unifi-protect-google-home/*.md"
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "*.md"
+      - "unifi-protect-google-home/*.md"
+
+concurrency:
+  group: >
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  ADDON_SLUG: unifi-protect-google-home
+  ARCHITECTURES: '["amd64"]'
+
+permissions:
+  contents: read
+
+jobs:
+  lint-repository:
+    name: Lint repository.yaml
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate repository.yaml
+        run: |
+          yq eval 'true' repository.yaml > /dev/null
+          yq eval -e '.name and .url and .maintainer' repository.yaml > /dev/null
+
+  lint-addon:
+    name: Lint add-on
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate config.yaml
+        run: |
+          yq eval 'true' "${ADDON_SLUG}/config.yaml" > /dev/null
+          yq eval -e '.slug and .version and .name and .arch' \
+            "${ADDON_SLUG}/config.yaml" > /dev/null
+
+      - name: Run Home Assistant add-on linter
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: "./${{ env.ADDON_SLUG }}"
+
+  lint-hadolint:
+    name: Hadolint (Dockerfile)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: unifi-protect-google-home/Dockerfile
+
+  lint-shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        env:
+          SHELLCHECK_OPTS: -s sh
+        with:
+          scandir: "./unifi-protect-google-home"
+
+  lint-yaml:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run yamllint
+        uses: frenck/action-yamllint@v1
+
+  lint-go:
+    name: Go Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: unifi-protect-google-home/go.mod
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: unifi-protect-google-home
+
+  test-go:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: unifi-protect-google-home
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: unifi-protect-google-home/go.mod
+
+      - name: Run Go tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: unifi-protect-google-home/coverage.out
+          fail_ci_if_error: false
+
+  build-test-init:
+    name: Initialize build matrix
+    needs:
+      - lint-repository
+      - lint-addon
+      - lint-hadolint
+      - lint-shellcheck
+      - lint-yaml
+      - lint-go
+      - test-go
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Get build matrix
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.03.2
+        with:
+          architectures: ${{ env.ARCHITECTURES }}
+          image-name: ${{ env.ADDON_SLUG }}
+
+  build-test:
+    name: Build Test (${{ matrix.arch }})
+    needs: build-test-init
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.build-test-init.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Read add-on version
+        id: info
+        run: |
+          VERSION="$(yq eval '.version' "${ADDON_SLUG}/config.yaml")"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build add-on image (test, no push)
+        uses: home-assistant/builder/actions/build-image@2026.03.2
+        with:
+          arch: ${{ matrix.arch }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            test
+          context: ./${{ env.ADDON_SLUG }}
+          push: "false"
+          version: ${{ steps.info.outputs.version }}
