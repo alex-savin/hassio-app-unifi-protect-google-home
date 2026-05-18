@@ -1,6 +1,6 @@
 ---
 name: "UniFi Protect → Google Home"
-version: "0.3.0"
+version: "0.3.1"
 slug: "unifi-protect-google-home"
 description: >-
   Bridge UniFi Protect cameras to Google Home via WebRTC (Cloud-to-Cloud CameraStream).
@@ -18,11 +18,16 @@ panel_title: "UniFi Protect"
 # options and trigger a restart after the user picks a controller.
 hassio_api: true
 hassio_role: manager
+# Container listens on 8099 internally; exposed on host port 8199 by default
+# to avoid colliding with other services. Adjust in the add-on's Network panel
+# if 8199 is busy. Reverse-proxy this host port behind your public HTTPS URL
+# so Google can reach the OAuth + fulfillment + WebRTC-signaling endpoints.
 ports:
-  8099/tcp: 8099
+  8099/tcp: 8199
 ports_description:
   8099/tcp: >-
-    HTTP endpoint (fulfillment, OAuth, WebRTC signaling). Reverse-proxy this behind your HA external URL.
+    HTTP endpoint (fulfillment, OAuth, WebRTC signaling). Reverse-proxy this
+    host port behind your public HTTPS URL.
 options:
   unifi:
     host: "unifi.local"

@@ -228,6 +228,15 @@ func (s *Server) writeOptions(ctx context.Context, req validateRequest) error {
 	unifiOpts["verify_tls"] = req.VerifyTLS
 	opts["unifi"] = unifiOpts
 
+	// Supervisor validates optional URL fields (url?) against a URL regex
+	// when the value is an empty string instead of treating "" as unset.
+	// Strip known url? fields when blank so the POST passes validation.
+	if bridgeOpts, ok := opts["bridge"].(map[string]any); ok {
+		if v, ok := bridgeOpts["public_base_url"].(string); ok && v == "" {
+			delete(bridgeOpts, "public_base_url")
+		}
+	}
+
 	body, _ := json.Marshal(map[string]any{"options": opts})
 	if _, err := s.supervisorJSON(ctx, http.MethodPost, "/addons/self/options", body); err != nil {
 		return fmt.Errorf("save options: %w", err)

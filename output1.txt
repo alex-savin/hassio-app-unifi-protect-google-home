@@ -1,0 +1,4 @@
+{"conclusion":"skipped","name":"Bump version and create release","startedAt":"2026-05-18T16:37:27Z","status":"completed"}
+{"conclusion":"success","name":"Initialize build matrix","startedAt":"2026-05-18T16:37:31Z","status":"completed"}
+{"conclusion":"skipped","name":"Build \u0026 push ${{ matrix.arch }} image","startedAt":"2026-05-18T16:37:37Z","status":"completed"}
+{"conclusion":"skipped","name":"Publish multi-arch manifest","startedAt":"2026-05-18T16:37:37Z","status":"completed"}

@@ -1,3 +1,8 @@
+## 0.3.1
+
+- **Default host port changed from 8099 → 8199** to avoid collisions on hosts where 8099 is already taken. Update your reverse-proxy `proxy_pass` accordingly. The container still listens internally on 8099 (configurable via `bridge.listen_addr`).
+- **Setup save fix**: `writeOptions` now drops the optional `bridge.public_base_url` from the payload when it's blank, so Supervisor's `url?` schema validator no longer rejects the save with `expected a URL`.
+
 ## 0.3.0
 
 - **Ingress setup UI.** The add-on now ships an in-Home-Assistant configuration panel (Web UI button on the add-on page). It scans the local network for UniFi consoles via UBNT UDP discovery, lets the user pick one, validates credentials against the Protect API, then writes the result back to the add-on options through the Supervisor REST API and triggers a restart — no manual YAML editing required.

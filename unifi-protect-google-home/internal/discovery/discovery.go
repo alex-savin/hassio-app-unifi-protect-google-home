@@ -33,10 +33,10 @@ const (
 	protoV1 = 0x01
 	protoV2 = 0x02
 
-	cmdV1Discovery  = 0x00
-	cmdV2Request    = 0x08
-	cmdV2ResponseA  = 0x06
-	cmdV2ResponseB  = 0x09
+	cmdV1Discovery = 0x00
+	cmdV2Request   = 0x08
+	cmdV2ResponseA = 0x06
+	cmdV2ResponseB = 0x09
 
 	fieldHWAddr      = 0x01
 	fieldIPInfo      = 0x02
