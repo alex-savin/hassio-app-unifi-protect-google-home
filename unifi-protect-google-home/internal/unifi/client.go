@@ -65,7 +65,7 @@ func (c *Client) Login(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("login: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return fmt.Errorf("login: status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
@@ -113,7 +113,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*
 			return nil, err
 		}
 		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			c.mu.Lock()
 			c.loggedIn = false
 			c.mu.Unlock()
@@ -139,7 +139,7 @@ func (c *Client) Bootstrap(ctx context.Context) ([]Camera, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, "", fmt.Errorf("bootstrap: status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
@@ -170,7 +170,7 @@ func (c *Client) Snapshot(ctx context.Context, camID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("snapshot: status %d", resp.StatusCode)
 	}
@@ -226,16 +226,7 @@ func (b bootstrapJSON) toCameras() []Camera {
 			Channels:   make([]Channel, 0, len(c.Channels)),
 		}
 		for _, ch := range c.Channels {
-			cam.Channels = append(cam.Channels, Channel{
-				ID:            ch.ID,
-				Name:          ch.Name,
-				Width:         ch.Width,
-				Height:        ch.Height,
-				FPS:           ch.FPS,
-				Bitrate:       ch.Bitrate,
-				RTSPAlias:     ch.RTSPAlias,
-				IsRTSPEnabled: ch.IsRTSPEnabled,
-			})
+			cam.Channels = append(cam.Channels, Channel(ch))
 		}
 		out = append(out, cam)
 	}

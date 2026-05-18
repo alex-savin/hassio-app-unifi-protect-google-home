@@ -50,8 +50,10 @@ func (p *Producer) Start(ctx context.Context) ([]*webrtc.TrackLocalStaticRTP, er
 	c := &gortsplib.Client{
 		TLSConfig: &tls.Config{InsecureSkipVerify: !p.VerifyTLS}, //nolint:gosec
 		Transport: &transport,
+		Scheme:    u.Scheme,
+		Host:      u.Host,
 	}
-	if err := c.Start(u.Scheme, u.Host); err != nil {
+	if err := c.Start2(); err != nil {
 		return nil, fmt.Errorf("rtsp start: %w", err)
 	}
 

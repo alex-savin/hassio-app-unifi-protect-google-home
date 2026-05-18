@@ -9,7 +9,6 @@ url: "https://github.com/alex-savin/hassio-app-unifi-protect-google-home"
 arch:
   - amd64
 startup: services
-boot: auto
 init: false
 ports:
   8099/tcp: 8099

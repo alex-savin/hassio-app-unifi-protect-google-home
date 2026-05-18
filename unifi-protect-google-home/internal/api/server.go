@@ -70,7 +70,7 @@ func (s *Server) SignalingURL(camID string) (string, error) {
 
 func (s *Server) signToken(camID string, exp int64) string {
 	mac := hmac.New(sha256.New, s.StreamTokenSecret)
-	fmt.Fprintf(mac, "%s|%d", camID, exp)
+	_, _ = fmt.Fprintf(mac, "%s|%d", camID, exp)
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 

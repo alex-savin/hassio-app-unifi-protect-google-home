@@ -121,7 +121,7 @@ func (h *HomeGraph) postAuthed(ctx context.Context, url string, body []byte) err
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return fmt.Errorf("homegraph: %s: %d %s", url, resp.StatusCode, strings.TrimSpace(string(b)))
@@ -158,7 +158,7 @@ func (h *HomeGraph) token(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("homegraph: token exchange: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("homegraph: token exchange: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))

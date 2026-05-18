@@ -89,7 +89,7 @@ func (s *Server) Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		consentTpl.Execute(w, consentData{
+		_ = consentTpl.Execute(w, consentData{
 			ClientID:    clientID,
 			RedirectURI: redirectURI,
 			State:       state,
@@ -104,7 +104,7 @@ func (s *Server) Authorize(w http.ResponseWriter, r *http.Request) {
 	pw := r.PostFormValue("password")
 	if subtle.ConstantTimeCompare([]byte(pw), []byte(s.UserPassword)) != 1 {
 		w.WriteHeader(http.StatusUnauthorized)
-		consentTpl.Execute(w, consentData{
+		_ = consentTpl.Execute(w, consentData{
 			ClientID:    clientID,
 			RedirectURI: redirectURI,
 			State:       state,

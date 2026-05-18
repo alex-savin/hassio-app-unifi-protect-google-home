@@ -70,6 +70,7 @@ func main() {
 
 	uc := unifi.New(cfg.UniFi)
 	if err := uc.Login(ctx); err != nil {
+		stop()
 		log.Fatalf("unifi login: %v", err)
 	}
 
@@ -80,6 +81,7 @@ func main() {
 	if cfg.Google.HomeGraphEnabled() {
 		hg, err = ghome.NewHomeGraph(cfg.Google.ProjectID, []byte(cfg.Google.ServiceAccountJSON))
 		if err != nil {
+			stop()
 			log.Fatalf("homegraph: %v", err)
 		}
 		if hg == nil {
@@ -98,6 +100,7 @@ func main() {
 	}
 
 	if _, err := rec.refresh(ctx); err != nil {
+		stop()
 		log.Fatalf("initial bootstrap: %v", err)
 	}
 	log.Printf("loaded %d camera(s)", len(src.snapshot()))
@@ -125,6 +128,7 @@ func main() {
 	go func() {
 		log.Printf("listening on %s", cfg.Bridge.ListenAddr)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			stop()
 			log.Fatalf("http: %v", err)
 		}
 	}()

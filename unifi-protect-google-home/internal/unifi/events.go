@@ -72,7 +72,7 @@ func (c *Client) SubscribeEvents(ctx context.Context, lastUpdateID string) (<-ch
 	if err != nil {
 		if resp != nil {
 			b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("ws dial: %s: %s", resp.Status, strings.TrimSpace(string(b)))
 		}
 		return nil, fmt.Errorf("ws dial: %w", err)
@@ -81,7 +81,7 @@ func (c *Client) SubscribeEvents(ctx context.Context, lastUpdateID string) (<-ch
 	out := make(chan Event, 32)
 	go func() {
 		defer close(out)
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		// Keep the connection alive with pings; reset read deadline on pong.
 		const pongWait = 60 * time.Second
@@ -180,7 +180,7 @@ func decodeEvent(buf []byte) (Event, bool, error) {
 				return Event{}, false, fmt.Errorf("zlib: %w", err)
 			}
 			payload, err = io.ReadAll(zr)
-			zr.Close()
+			_ = zr.Close()
 			if err != nil {
 				return Event{}, false, fmt.Errorf("zlib read: %w", err)
 			}
