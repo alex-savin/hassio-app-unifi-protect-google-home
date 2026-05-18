@@ -106,6 +106,7 @@ jobs:
   build:
     name: Build & push ${{ matrix.arch }} image
     needs: init
+    if: needs.init.result == 'success'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -138,6 +139,7 @@ jobs:
     needs:
       - init
       - build
+    if: needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
