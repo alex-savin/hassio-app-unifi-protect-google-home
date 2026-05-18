@@ -125,7 +125,20 @@ func (s *Server) verifyToken(camID, expStr, tok string) error {
 }
 
 // signalHandler accepts the SDP offer from Google and returns an SDP answer.
+//
+// Chromecast / Nest Hub clients issue a CORS preflight (OPTIONS) from
+// https://www.gstatic.com before the actual POST, so we must answer it with
+// the standard Access-Control-Allow-* headers. The URL itself is already
+// HMAC-token-protected, so the CORS origin check adds no real security.
 func (s *Server) signalHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Max-Age", "600")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

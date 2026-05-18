@@ -1,3 +1,7 @@
+## 0.3.2
+
+- **WebRTC signaling: handle CORS preflight.** Chromecast / Nest Hub clients issue an `OPTIONS` request from `https://www.gstatic.com` before POSTing the SDP offer. The signaling handler now answers preflights with `Access-Control-Allow-*` headers and returns `204`, so streams start playing on Google smart displays. Without this, displays reported "Camera feed is not available".
+
 ## 0.3.1
 
 - **Default host port changed from 8099 → 8199** to avoid collisions on hosts where 8099 is already taken. Update your reverse-proxy `proxy_pass` accordingly. The container still listens internally on 8099 (configurable via `bridge.listen_addr`).

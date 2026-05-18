@@ -1,6 +1,6 @@
 ---
 name: "UniFi Protect → Google Home"
-version: "0.3.1"
+version: "0.3.2"
 slug: "unifi-protect-google-home"
 description: >-
   Bridge UniFi Protect cameras to Google Home via WebRTC (Cloud-to-Cloud CameraStream).
