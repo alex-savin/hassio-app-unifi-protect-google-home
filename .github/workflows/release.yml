@@ -2,84 +2,25 @@
 name: Release
 
 "on":
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "New version (e.g. 0.0.2). Required."
-        required: true
   release:
     types:
       - published
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or branch to build (defaults to main)"
+        required: false
+        default: main
 
 env:
   ADDON_SLUG: unifi-protect-google-home
-  ARCHITECTURES: '["amd64"]'
 
 permissions:
   contents: read
 
 jobs:
-  bump-and-release:
-    name: Bump version and create release
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      version: ${{ steps.bump.outputs.version }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-
-      - name: Bump config.yaml + prepend CHANGELOG.md
-        id: bump
-        run: |
-          set -euo pipefail
-          VERSION="${{ github.event.inputs.version }}"
-          CONFIG="${ADDON_SLUG}/config.yaml"
-          CHANGELOG="${ADDON_SLUG}/CHANGELOG.md"
-          yq eval -i ".version = \"${VERSION}\"" "${CONFIG}"
-          if ! grep -qE "^## ${VERSION}( |$)" "${CHANGELOG}"; then
-            {
-              echo "## ${VERSION}"
-              echo ""
-              echo "- Release ${VERSION}."
-              echo ""
-              cat "${CHANGELOG}"
-            } > "${CHANGELOG}.tmp"
-            mv "${CHANGELOG}.tmp" "${CHANGELOG}"
-          fi
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
-
-      - name: Commit version bump
-        uses: stefanzweifel/git-auto-commit-action@v7
-        with:
-          commit_message: "Release ${{ steps.bump.outputs.version }}"
-          file_pattern: >-
-            unifi-protect-google-home/config.yaml
-            unifi-protect-google-home/CHANGELOG.md
-          branch: main
-          tagging_message: "v${{ steps.bump.outputs.version }}"
-
-      - name: Create GitHub release
-        uses: ncipollo/release-action@v1
-        with:
-          tag: "v${{ steps.bump.outputs.version }}"
-          name: "Release ${{ steps.bump.outputs.version }}"
-          generateReleaseNotes: true
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-  init:
+  version:
     name: Read add-on version
-    needs: bump-and-release
-    if: |
-      always() &&
-      (github.event_name == 'release' ||
-       needs.bump-and-release.result == 'success')
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.info.outputs.version }}
@@ -87,7 +28,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.event.inputs.ref || github.ref }}
 
       - name: Read add-on version
         id: info
@@ -97,8 +38,7 @@ jobs:
 
   build:
     name: Build & push amd64 image
-    needs: init
-    if: needs.init.result == 'success'
+    needs: version
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -108,7 +48,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.event.inputs.ref || github.ref }}
 
       - name: Build and push add-on image
         uses: home-assistant/builder/actions/build-image@2026.03.2
@@ -117,18 +57,17 @@ jobs:
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
           image: ghcr.io/${{ github.repository_owner }}/amd64-${{ env.ADDON_SLUG }}
           image-tags: |
-            ${{ needs.init.outputs.version }}
+            ${{ needs.version.outputs.version }}
             latest
           context: ./${{ env.ADDON_SLUG }}
           push: "true"
-          version: ${{ needs.init.outputs.version }}
+          version: ${{ needs.version.outputs.version }}
 
   manifest:
     name: Publish multi-arch manifest
     needs:
-      - init
+      - version
       - build
-    if: needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -137,9 +76,9 @@ jobs:
       - name: Publish multi-arch manifest
         uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.03.2
         with:
-          architectures: ${{ env.ARCHITECTURES }}
+          architectures: '["amd64"]'
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
           image-name: ${{ env.ADDON_SLUG }}
           image-tags: |
-            ${{ needs.init.outputs.version }}
+            ${{ needs.version.outputs.version }}
             latest

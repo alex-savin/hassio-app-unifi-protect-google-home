@@ -1,0 +1,67 @@
+---
+name: Bump version
+
+"on":
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "New version (e.g. 0.3.1). Required."
+        required: true
+
+env:
+  ADDON_SLUG: unifi-protect-google-home
+
+permissions:
+  contents: read
+
+jobs:
+  bump-and-release:
+    name: Bump version and create release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Bump config.yaml + prepend CHANGELOG.md
+        id: bump
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.inputs.version }}"
+          CONFIG="${ADDON_SLUG}/config.yaml"
+          CHANGELOG="${ADDON_SLUG}/CHANGELOG.md"
+          yq eval -i ".version = \"${VERSION}\"" "${CONFIG}"
+          if ! grep -qE "^## ${VERSION}( |$)" "${CHANGELOG}"; then
+            {
+              echo "## ${VERSION}"
+              echo ""
+              echo "- Release ${VERSION}."
+              echo ""
+              cat "${CHANGELOG}"
+            } > "${CHANGELOG}.tmp"
+            mv "${CHANGELOG}.tmp" "${CHANGELOG}"
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Commit version bump
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "Release ${{ steps.bump.outputs.version }}"
+          file_pattern: >-
+            unifi-protect-google-home/config.yaml
+            unifi-protect-google-home/CHANGELOG.md
+          branch: main
+          tagging_message: "v${{ steps.bump.outputs.version }}"
+
+      - name: Create GitHub release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: "v${{ steps.bump.outputs.version }}"
+          name: "Release ${{ steps.bump.outputs.version }}"
+          generateReleaseNotes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
