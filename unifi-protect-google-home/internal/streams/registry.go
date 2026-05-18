@@ -1,7 +1,7 @@
 // Package streams maintains a reference-counted registry of live media streams.
 //
 // Each Stream has a Producer that, when started, opens an upstream source
-// (e.g. RTSP) and writes RTP packets into one or more pion TrackLocalStaticRTP
+// (e.g. RTSP) and writes media into one or more pion TrackLocal
 // tracks. Those tracks can be added to many WebRTC PeerConnections at once;
 // pion handles per-sender fan-out. When the last consumer detaches, the
 // Producer is stopped to release the upstream.
@@ -23,7 +23,7 @@ import (
 // populate Tracks; it must spawn its own goroutine for the long-running read
 // loop, which should exit when ctx is cancelled or Stop is called.
 type Producer interface {
-	Start(ctx context.Context) ([]*webrtc.TrackLocalStaticRTP, error)
+	Start(ctx context.Context) ([]webrtc.TrackLocal, error)
 	Stop() error
 }
 
@@ -33,7 +33,7 @@ type Stream struct {
 	Producer Producer
 
 	mu      sync.Mutex
-	tracks  []*webrtc.TrackLocalStaticRTP
+	tracks  []webrtc.TrackLocal
 	refs    int
 	started bool
 	cancel  context.CancelFunc
@@ -46,7 +46,7 @@ func NewStream(name string, p Producer) *Stream {
 
 // Acquire starts the producer on first ref. Returns the active tracks and
 // a release function that the caller MUST call exactly once when done.
-func (s *Stream) Acquire(ctx context.Context) ([]*webrtc.TrackLocalStaticRTP, func(), error) {
+func (s *Stream) Acquire(ctx context.Context) ([]webrtc.TrackLocal, func(), error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.started {

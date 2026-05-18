@@ -1,3 +1,8 @@
+## 0.3.3
+
+- **Fix black-screen streams (`write rtp: short buffer` flood).** The bridge previously forwarded RTSP RTP packets verbatim through pion's `TrackLocalStaticRTP`. pion's outbound RTP path has a hardcoded `outboundMTU = 1200` byte buffer, so UniFi Protect's ~1450-byte RTP packets failed every SRTP/ICE write with `io.ErrShortBuffer`. The display would show the green LIVE indicator but no frames. Switched to `TrackLocalStaticSample` fed by gortsplib's `rtph264.Decoder`: incoming RTP is depacketized into H.264 access units, SPS/PPS are injected before each IDR, and pion's built-in H.264 payloader re-fragments NAL units into FU-A packets that respect the 1200-byte MTU.
+- Producer interface generalized from `[]*webrtc.TrackLocalStaticRTP` to `[]webrtc.TrackLocal` to support sample-based tracks.
+
 ## 0.3.2
 
 - **WebRTC signaling: handle CORS preflight.** Chromecast / Nest Hub clients issue an `OPTIONS` request from `https://www.gstatic.com` before POSTing the SDP offer. The signaling handler now answers preflights with `Access-Control-Allow-*` headers and returns `204`, so streams start playing on Google smart displays. Without this, displays reported "Camera feed is not available".

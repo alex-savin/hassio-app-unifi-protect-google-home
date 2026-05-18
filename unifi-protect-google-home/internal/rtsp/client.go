@@ -1,8 +1,17 @@
 // Package rtsp implements a streams.Producer that pulls an RTSP/RTSPS feed
-// using gortsplib and forwards H.264 RTP packets to pion WebRTC tracks.
+// using gortsplib and forwards H.264 access units to pion WebRTC tracks
+// via TrackLocalStaticSample.
 //
 // We do no transcoding. Audio is intentionally not forwarded — Protect cameras
 // emit AAC, which WebRTC does not accept. Video-only is the supported mode.
+//
+// Why samples instead of raw RTP forwarding: pion's outbound RTP path has a
+// hardcoded 1200-byte MTU (see pion/webrtc/v4 constants.go outboundMTU). RTSP
+// sources typically emit 1450-byte RTP packets sized for Ethernet UDP, which
+// fail SRTP/ICE buffer checks with io.ErrShortBuffer. By depacketizing to
+// H.264 access units and writing them through TrackLocalStaticSample, pion's
+// internal H.264 payloader fragments NALUs into FU-A packets that respect
+// the outbound MTU.
 package rtsp
 
 import (
@@ -12,14 +21,25 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	gortsplib "github.com/bluenviron/gortsplib/v4"
 	"github.com/bluenviron/gortsplib/v4/pkg/base"
 	"github.com/bluenviron/gortsplib/v4/pkg/description"
 	"github.com/bluenviron/gortsplib/v4/pkg/format"
+	"github.com/bluenviron/gortsplib/v4/pkg/format/rtph264"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media"
 )
+
+// annexBStartCode is the 4-byte Annex-B NALU start prefix.
+var annexBStartCode = []byte{0x00, 0x00, 0x00, 0x01}
+
+// h264NALUTypeIDR is the NAL unit type for an instantaneous decoder refresh
+// (key frame). When we see one, we prepend SPS/PPS so downstream decoders
+// (Chromecast / Google Home displays) have parameter sets to initialize.
+const h264NALUTypeIDR = 5
 
 // Producer is a streams.Producer backed by an RTSP/RTSPS source.
 type Producer struct {
@@ -29,7 +49,7 @@ type Producer struct {
 
 	mu     sync.Mutex
 	client *gortsplib.Client
-	track  *webrtc.TrackLocalStaticRTP
+	track  *webrtc.TrackLocalStaticSample
 	closed bool
 }
 
@@ -39,8 +59,8 @@ func NewProducer(streamID, url string, verifyTLS bool) *Producer {
 }
 
 // Start opens the RTSP session, locates an H.264 video media, creates a pion
-// track, and begins forwarding RTP packets in a background goroutine.
-func (p *Producer) Start(ctx context.Context) ([]*webrtc.TrackLocalStaticRTP, error) {
+// sample track, and begins forwarding access units in a background goroutine.
+func (p *Producer) Start(ctx context.Context) ([]webrtc.TrackLocal, error) {
 	u, err := base.ParseURL(p.URL)
 	if err != nil {
 		return nil, fmt.Errorf("parse url: %w", err)
@@ -87,8 +107,14 @@ func (p *Producer) Start(ctx context.Context) ([]*webrtc.TrackLocalStaticRTP, er
 		return nil, fmt.Errorf("setup: %w", err)
 	}
 
+	rtpDec, err := videoFormat.CreateDecoder()
+	if err != nil {
+		c.Close()
+		return nil, fmt.Errorf("create h264 decoder: %w", err)
+	}
+
 	profileLevelID := profileLevelIDFromSPS(videoFormat.SPS)
-	track, err := webrtc.NewTrackLocalStaticRTP(
+	track, err := webrtc.NewTrackLocalStaticSample(
 		webrtc.RTPCodecCapability{
 			MimeType:    webrtc.MimeTypeH264,
 			ClockRate:   90000,
@@ -101,9 +127,47 @@ func (p *Producer) Start(ctx context.Context) ([]*webrtc.TrackLocalStaticRTP, er
 		return nil, fmt.Errorf("new track: %w", err)
 	}
 
+	sps := videoFormat.SPS
+	pps := videoFormat.PPS
+
+	var (
+		lastTS    uint32
+		haveTS    bool
+		fallback  = 33 * time.Millisecond // ~30fps default for the first sample
+	)
+
 	c.OnPacketRTP(videoMedia, videoFormat, func(pkt *rtp.Packet) {
-		if err := track.WriteRTP(pkt); err != nil {
-			log.Printf("rtsp[%s] write rtp: %v", p.StreamID, err)
+		au, err := rtpDec.Decode(pkt)
+		if err != nil {
+			if errors.Is(err, rtph264.ErrMorePacketsNeeded) ||
+				errors.Is(err, rtph264.ErrNonStartingPacketAndNoPrevious) {
+				return
+			}
+			log.Printf("rtsp[%s] decode: %v", p.StreamID, err)
+			return
+		}
+
+		// Inject SPS/PPS before any IDR so downstream decoders can init.
+		au = injectParamSets(au, sps, pps)
+
+		// Compute sample duration from RTP timestamp delta (90kHz clock).
+		var dur time.Duration
+		if haveTS {
+			delta := int32(pkt.Timestamp - lastTS) //nolint:gosec // wrap is intentional
+			if delta <= 0 {
+				dur = fallback
+			} else {
+				dur = time.Duration(delta) * time.Second / 90000
+			}
+		} else {
+			dur = fallback
+		}
+		lastTS = pkt.Timestamp
+		haveTS = true
+
+		data := encodeAnnexB(au)
+		if err := track.WriteSample(media.Sample{Data: data, Duration: dur}); err != nil {
+			log.Printf("rtsp[%s] write sample: %v", p.StreamID, err)
 		}
 	})
 
@@ -130,7 +194,7 @@ func (p *Producer) Start(ctx context.Context) ([]*webrtc.TrackLocalStaticRTP, er
 		}
 	}()
 
-	return []*webrtc.TrackLocalStaticRTP{track}, nil
+	return []webrtc.TrackLocal{track}, nil
 }
 
 // Stop terminates the RTSP session.
@@ -147,4 +211,52 @@ func (p *Producer) Stop() error {
 	}
 	p.track = nil
 	return nil
+}
+
+// encodeAnnexB concatenates NAL units with 4-byte Annex-B start codes.
+func encodeAnnexB(au [][]byte) []byte {
+	size := 0
+	for _, nalu := range au {
+		size += 4 + len(nalu)
+	}
+	out := make([]byte, 0, size)
+	for _, nalu := range au {
+		out = append(out, annexBStartCode...)
+		out = append(out, nalu...)
+	}
+	return out
+}
+
+// injectParamSets prepends SPS/PPS to the access unit if it contains an IDR
+// and the AU doesn't already carry parameter sets. Returns the AU unchanged
+// if no IDR is present or SPS/PPS are unavailable.
+func injectParamSets(au [][]byte, sps, pps []byte) [][]byte {
+	if len(sps) == 0 || len(pps) == 0 {
+		return au
+	}
+	hasIDR, hasSPS, hasPPS := false, false, false
+	for _, nalu := range au {
+		if len(nalu) == 0 {
+			continue
+		}
+		switch nalu[0] & 0x1F {
+		case h264NALUTypeIDR:
+			hasIDR = true
+		case 7: // SPS
+			hasSPS = true
+		case 8: // PPS
+			hasPPS = true
+		}
+	}
+	if !hasIDR || (hasSPS && hasPPS) {
+		return au
+	}
+	prefix := make([][]byte, 0, 2+len(au))
+	if !hasSPS {
+		prefix = append(prefix, sps)
+	}
+	if !hasPPS {
+		prefix = append(prefix, pps)
+	}
+	return append(prefix, au...)
 }
