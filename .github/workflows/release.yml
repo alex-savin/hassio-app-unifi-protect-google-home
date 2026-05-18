@@ -43,14 +43,16 @@ jobs:
           CONFIG="${ADDON_SLUG}/config.yaml"
           CHANGELOG="${ADDON_SLUG}/CHANGELOG.md"
           yq eval -i ".version = \"${VERSION}\"" "${CONFIG}"
-          {
-            echo "## ${VERSION}"
-            echo ""
-            echo "- Release ${VERSION}."
-            echo ""
-            cat "${CHANGELOG}"
-          } > "${CHANGELOG}.tmp"
-          mv "${CHANGELOG}.tmp" "${CHANGELOG}"
+          if ! grep -qE "^## ${VERSION}( |$)" "${CHANGELOG}"; then
+            {
+              echo "## ${VERSION}"
+              echo ""
+              echo "- Release ${VERSION}."
+              echo ""
+              cat "${CHANGELOG}"
+            } > "${CHANGELOG}.tmp"
+            mv "${CHANGELOG}.tmp" "${CHANGELOG}"
+          fi
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
       - name: Commit version bump
