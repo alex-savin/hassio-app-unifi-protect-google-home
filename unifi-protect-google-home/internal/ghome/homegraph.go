@@ -77,6 +77,16 @@ func NewHomeGraph(projectID string, saJSON []byte) (*HomeGraph, error) {
 	}, nil
 }
 
+// ServiceAccountEmail returns the client_email of the loaded service account,
+// useful for startup logging and IAM diagnostics.
+func (h *HomeGraph) ServiceAccountEmail() string { return h.sa.ClientEmail }
+
+// ServiceAccountProjectID returns the project_id embedded in the service
+// account JSON (which is the GCP project the SA authenticates against).
+// This MUST match the Cloud Project ID of the Smart Home action in the
+// Actions Console, otherwise requestSync returns 500 INTERNAL.
+func (h *HomeGraph) ServiceAccountProjectID() string { return h.sa.ProjectID }
+
 // RequestSync asks Google to re-run our SYNC intent (after add/remove).
 func (h *HomeGraph) RequestSync(ctx context.Context, agentUserID string) error {
 	body, _ := json.Marshal(map[string]any{

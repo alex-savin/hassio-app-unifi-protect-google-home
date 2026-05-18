@@ -1,3 +1,7 @@
+## 0.3.6
+
+- **HomeGraph startup diagnostics.** Bridge now logs the service account's `client_email` and `project_id` at startup, and warns when `google.project_id` (add-on option) disagrees with the `project_id` inside the service account JSON. The `requestSync: 500 INTERNAL` error from HomeGraph almost always means the service account belongs to a different GCP project than the one that owns the Smart Home action in the Actions Console — this surfaces the mismatch without needing to inspect the JSON manually.
+
 ## 0.3.5
 
 - **Drop invalid `cameraStreamIceServers: ""` field from EXECUTE response.** Google's schema for `GetCameraStream` requires `cameraStreamIceServers` to be either omitted or a JSON-encoded array string. Sending an empty string is treated as a malformed state by some Home app builds and can cause the camera tile to silently fall back to "device details" UI instead of the live-preview tile.

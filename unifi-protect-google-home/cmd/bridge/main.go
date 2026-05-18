@@ -125,6 +125,14 @@ func run() int {
 		}
 		if hg == nil {
 			log.Printf("homegraph: no service account configured — RequestSync/ReportState disabled")
+		} else {
+			saProj := hg.ServiceAccountProjectID()
+			log.Printf("homegraph: service account %s (sa project_id=%s, config project_id=%s)",
+				hg.ServiceAccountEmail(), saProj, cfg.Google.ProjectID)
+			if cfg.Google.ProjectID != "" && saProj != "" && cfg.Google.ProjectID != saProj {
+				log.Printf("homegraph: WARNING google.project_id (%s) does not match service account project_id (%s) — requestSync will likely return 500 INTERNAL until they agree and that project owns the Smart Home action",
+					cfg.Google.ProjectID, saProj)
+			}
 		}
 	} else {
 		log.Printf("homegraph: disabled via google.enable_homegraph=false")
