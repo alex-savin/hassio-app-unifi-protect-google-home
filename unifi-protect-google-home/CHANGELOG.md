@@ -1,3 +1,7 @@
+## 0.1.1
+
+- Make `bridge.public_base_url` optional in the schema (`url?`) so settings can be saved before a public URL is wired up. The bridge still validates the URL at startup when needed.
+
 ## 0.1.0
 
 - Restructured as a Home Assistant add-on repository (add-on lives in `unifi-protect-google-home/`).
