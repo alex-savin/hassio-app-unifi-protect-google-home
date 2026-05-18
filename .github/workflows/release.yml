@@ -75,7 +75,11 @@ jobs:
 
   init:
     name: Initialize build matrix
-    if: github.event_name == 'release'
+    needs: bump-and-release
+    if: |
+      always() &&
+      (github.event_name == 'release' ||
+       needs.bump-and-release.result == 'success')
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -83,6 +87,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: main
 
       - name: Read add-on version
         id: info
@@ -111,6 +117,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: main
 
       - name: Build and push add-on image
         uses: home-assistant/builder/actions/build-image@2026.03.2
