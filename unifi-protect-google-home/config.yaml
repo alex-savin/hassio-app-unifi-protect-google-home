@@ -1,10 +1,9 @@
 ---
 name: "UniFi Protect → Google Home"
-version: "0.0.1"
+version: "0.1.0"
 slug: "unifi-protect-google-home"
 description: >-
-  Bridge UniFi Protect cameras to Google Home via WebRTC
-  (Cloud-to-Cloud CameraStream).
+  Bridge UniFi Protect cameras to Google Home via WebRTC (Cloud-to-Cloud CameraStream).
 url: "https://github.com/alex-savin/hassio-app-unifi-protect-google-home"
 arch:
   - amd64
@@ -14,8 +13,7 @@ ports:
   8099/tcp: 8099
 ports_description:
   8099/tcp: >-
-    HTTP endpoint (fulfillment, OAuth, WebRTC signaling).
-    Reverse-proxy this behind your HA external URL.
+    HTTP endpoint (fulfillment, OAuth, WebRTC signaling). Reverse-proxy this behind your HA external URL.
 options:
   unifi:
     host: "unifi.local"
