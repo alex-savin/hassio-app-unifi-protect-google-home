@@ -344,7 +344,14 @@ func (r *reconciler) refresh(ctx context.Context) (string, error) {
 			Online:       cam.Online,
 		}
 		ghomeCams = append(ghomeCams, next)
-		if p, had := prev[cam.ID]; had && p.Online != next.Online {
+		if p, had := prev[cam.ID]; had {
+			if p.Online != next.Online {
+				onlineChanged[cam.ID] = map[string]any{"online": next.Online, "status": "SUCCESS"}
+			}
+		} else {
+			// First time we see this camera in this process — push initial
+			// state so HomeGraph's cache is populated. The Test Suite reads
+			// online from that cache, not from QUERY.
 			onlineChanged[cam.ID] = map[string]any{"online": next.Online, "status": "SUCCESS"}
 		}
 

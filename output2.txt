@@ -1,4 +1,0 @@
-{"conclusion":"skipped","name":"Bump version and create release","steps":[]}
-{"conclusion":"success","name":"Initialize build matrix","steps":[{"conclusion":"success","name":"Set up job"},{"conclusion":"success","name":"Checkout repository"},{"conclusion":"success","name":"Read add-on version"},{"conclusion":"success","name":"Get build matrix"},{"conclusion":"success","name":"Post Checkout repository"},{"conclusion":"success","name":"Complete job"}]}
-{"conclusion":"skipped","name":"Build \u0026 push ${{ matrix.arch }} image","steps":[]}
-{"conclusion":"skipped","name":"Publish multi-arch manifest","steps":[]}

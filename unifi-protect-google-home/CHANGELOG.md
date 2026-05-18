@@ -1,3 +1,7 @@
+## 0.3.8
+
+- **Fix: Test Suite "Device is not online before the test" failure.** The Google Smart Home Test Suite reads device online status from HomeGraph's ReportState cache, not by calling QUERY. Previously the bridge only pushed `reportStateAndNotification` when a camera's online state *changed*, so on a freshly linked account the cache was empty and every device appeared offline. The reconciler now pushes an initial ReportState entry for every camera the first time it observes it, populating the cache as soon as the bridge starts.
+
 ## 0.3.7
 
 - **Fix: HomeGraph `requestSync` 500 / cameras disappearing after restart.** OAuth access and refresh tokens were previously kept only in memory, so every add-on restart silently invalidated the tokens Google held for our integration. The first SYNC callback after restart would return `401` from `/smarthome`, the follow-up refresh would `400` from `/oauth/token`, and Google would purge the `agentUserId` binding — causing `requestSync` to fail with `500 INTERNAL` and the cameras to drop out of the Home app. Tokens are now stateless HMAC-signed strings (using `bridge.stream_token_secret`) with an embedded expiry; they survive restarts. Refresh tokens are valid for ten years, matching Google's expectation that they only expire when explicitly revoked.
