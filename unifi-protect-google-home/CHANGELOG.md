@@ -1,3 +1,7 @@
+## 0.3.5
+
+- **Drop invalid `cameraStreamIceServers: ""` field from EXECUTE response.** Google's schema for `GetCameraStream` requires `cameraStreamIceServers` to be either omitted or a JSON-encoded array string. Sending an empty string is treated as a malformed state by some Home app builds and can cause the camera tile to silently fall back to "device details" UI instead of the live-preview tile.
+
 ## 0.3.4
 
 - **Cameras now show live preview tiles in the Google Home app.** Set `cameraStreamSupportsPreview: true` in the SYNC attributes so each camera renders as an interactive tile with a live WebRTC preview when tapped in the Home app (previously they appeared as devices but could only be streamed via voice to a Cast display). Same signaling pipeline — no additional endpoints required.

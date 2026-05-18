@@ -149,7 +149,6 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 						"online":                   true,
 						"cameraStreamProtocol":     "webrtc",
 						"cameraStreamSignalingUrl": url,
-						"cameraStreamIceServers":   "",
 					},
 				})
 			}
