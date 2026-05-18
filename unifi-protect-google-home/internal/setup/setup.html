@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniFi Protect → Google Home — Setup</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         max-width: 760px; margin: 1.5rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; margin-bottom: .25rem; }
+  h2 { font-size: 1.05rem; margin-top: 1.75rem; }
+  .muted { color: #777; font-size: .9rem; }
+  button { padding: .5rem 1rem; font-size: .95rem; cursor: pointer;
+           border: 1px solid #999; background: #f7f7f7; border-radius: 4px; }
+  button:disabled { opacity: .5; cursor: progress; }
+  button.primary { background: #03a9f4; color: #fff; border-color: #03a9f4; }
+  table { width: 100%; border-collapse: collapse; margin: .75rem 0; font-size: .95rem; }
+  td, th { padding: .5rem; text-align: left; border-bottom: 1px solid #e0e0e0; }
+  tr.selected { background: rgba(3,169,244,.15); }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: rgba(0,0,0,.03); }
+  label { display: block; margin: .6rem 0 .2rem; font-weight: 600; font-size: .9rem; }
+  input[type=text], input[type=password] {
+    width: 100%; padding: .45rem; box-sizing: border-box; font-size: .95rem;
+    border: 1px solid #bbb; border-radius: 4px; background: transparent;
+  }
+  .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 14rem; }
+  .alert { padding: .75rem 1rem; border-radius: 4px; margin: 1rem 0; font-size: .95rem; }
+  .alert-error { background: rgba(255,82,82,.18); color: #b00020; }
+  .alert-ok    { background: rgba(46,160,67,.18); color: #1a7f1f; }
+  code { font-family: ui-monospace, monospace; font-size: .9em; }
+</style>
+</head>
+<body>
+  <h1>UniFi Protect → Google Home</h1>
+  <p class="muted">Discover your UniFi Protect controller and write the connection settings back to the add-on configuration.</p>
+
+  <h2>1. Discover</h2>
+  <button id="scanBtn">Scan local network</button>
+  <span id="scanStatus" class="muted" style="margin-left:.75rem"></span>
+  <table id="devicesTbl" hidden>
+    <thead><tr><th>IP</th><th>Hostname</th><th>Model</th><th>Version</th><th>MAC</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>2. Credentials</h2>
+  <p class="muted">Use a <strong>local</strong> UniFi OS admin account (Ubiquiti SSO / cloud accounts will be rejected by the Protect API).</p>
+  <div class="row">
+    <div>
+      <label>Host (IP or DirectConnect hostname)</label>
+      <input id="host" type="text" placeholder="e.g. 192.168.1.1 or abc123.ui.direct">
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <label>Username</label>
+      <input id="username" type="text" autocomplete="off">
+    </div>
+    <div>
+      <label>Password</label>
+      <input id="password" type="password" autocomplete="new-password">
+    </div>
+  </div>
+  <label style="font-weight:400; margin-top:.75rem">
+    <input id="verify_tls" type="checkbox"> Verify TLS certificate (auto-enabled for <code>*.ui.direct</code>)
+  </label>
+
+  <h2>3. Test &amp; save</h2>
+  <button id="testBtn">Test connection</button>
+  <button id="saveBtn" class="primary" disabled>Save &amp; restart add-on</button>
+  <div id="result"></div>
+
+<script>
+const API = './api';
+const $ = id => document.getElementById(id);
+
+$('scanBtn').onclick = async () => {
+  $('scanBtn').disabled = true;
+  $('scanStatus').textContent = 'Scanning (5 s)…';
+  try {
+    const r = await fetch(API + '/discover');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const devices = j.devices || [];
+    const tbody = $('devicesTbl').querySelector('tbody');
+    tbody.innerHTML = '';
+    for (const d of devices) {
+      const tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.innerHTML = `
+        <td>${esc(d.source_ip)}</td>
+        <td>${esc(d.hostname || '')}</td>
+        <td>${esc(d.product_name || d.platform || d.model || '')}</td>
+        <td>${esc(d.version || d.fw_version || '')}</td>
+        <td><code>${esc(d.hw_addr || '')}</code></td>`;
+      tr.onclick = () => {
+        tbody.querySelectorAll('tr').forEach(t => t.classList.remove('selected'));
+        tr.classList.add('selected');
+        $('host').value = d.source_ip;
+      };
+      tbody.appendChild(tr);
+    }
+    $('devicesTbl').hidden = devices.length === 0;
+    $('scanStatus').textContent = devices.length + ' device(s) found.';
+  } catch (e) {
+    $('scanStatus').textContent = 'Scan failed: ' + e.message;
+  }
+  $('scanBtn').disabled = false;
+};
+
+function payload() {
+  return {
+    host: $('host').value.trim(),
+    username: $('username').value,
+    password: $('password').value,
+    verify_tls: $('verify_tls').checked,
+  };
+}
+
+$('testBtn').onclick = async () => {
+  $('testBtn').disabled = true; $('saveBtn').disabled = true;
+  $('result').innerHTML = '';
+  try {
+    const r = await fetch(API + '/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload()),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      $('result').innerHTML = `<div class="alert alert-ok">
+        Connected. NVR <code>${esc(j.nvr_mac)}</code> · Protect ${esc(j.nvr_version)} · ${j.cameras} camera(s).
+      </div>`;
+      $('saveBtn').disabled = false;
+    } else {
+      $('result').innerHTML = `<div class="alert alert-error">${esc(j.error || 'Unknown error')}</div>`;
+    }
+  } catch (e) {
+    $('result').innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+  }
+  $('testBtn').disabled = false;
+};
+
+$('saveBtn').onclick = async () => {
+  $('saveBtn').disabled = true;
+  try {
+    const r = await fetch(API + '/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload(), restart: true }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      $('result').innerHTML = `<div class="alert alert-ok">Saved. The add-on is restarting — this page will become unresponsive briefly.</div>`;
+    } else {
+      $('result').innerHTML = `<div class="alert alert-error">${esc(j.error || 'Save failed')}</div>`;
+      $('saveBtn').disabled = false;
+    }
+  } catch (e) {
+    $('result').innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+    $('saveBtn').disabled = false;
+  }
+};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+</script>
+</body>
+</html>

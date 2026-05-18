@@ -16,9 +16,11 @@ import (
 
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/api"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/config"
+	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/discovery"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/ghome"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/oauth"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp"
+	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/setup"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/streams"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/unifi"
 	wrtc "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/webrtc"
@@ -56,12 +58,47 @@ func main() {
 
 func run() int {
 	optsPath := flag.String("options", "/data/options.json", "Path to HA add-on options.json")
+	setupAddr := flag.String("setup-addr", "0.0.0.0:8100", "Listen address for the ingress setup UI")
 	flag.Parse()
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Best-effort: start the ingress setup server whenever the Supervisor
+	// token is available. It runs alongside the public bridge so users can
+	// reconfigure credentials at any time. When the config below fails to
+	// load (fresh install / missing UniFi creds), we stay alive on this
+	// server alone until the user finishes the setup flow.
+	setupSrv := setup.New()
+	var setupHTTP *http.Server
+	if setupSrv != nil {
+		setupHTTP = &http.Server{
+			Addr:              *setupAddr,
+			Handler:           setupSrv.Routes(),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		go func() {
+			log.Printf("setup UI listening on %s (ingress)", *setupAddr)
+			if err := setupHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("setup http: %v", err)
+			}
+		}()
+		defer func() {
+			shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_ = setupHTTP.Shutdown(shutCtx)
+		}()
+	}
 
 	cfg, err := config.Load(*optsPath)
 	if err != nil {
 		log.Printf("config: %v", err)
-		return 1
+		if setupSrv == nil {
+			return 1
+		}
+		log.Printf("running in setup-only mode — open the add-on Web UI to configure UniFi Protect")
+		<-ctx.Done()
+		return 0
 	}
 
 	lvl := parseLogLevel(cfg.Bridge.LogLevel)
@@ -69,9 +106,6 @@ func run() int {
 	log.SetFlags(0)
 	log.SetOutput(slogWriter{})
 	slog.Info("bridge starting", "log_level", lvl.String())
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	uc := unifi.New(cfg.UniFi)
 	if err := uc.Login(ctx); err != nil {
@@ -108,6 +142,15 @@ func run() int {
 		log.Printf("initial bootstrap: %v", err)
 		return 1
 	}
+	if uc.AuthUserCloudOnly() {
+		log.Printf("unifi: the configured account is a Ubiquiti cloud (SSO) user; " +
+			"Protect rejects API access for cloud accounts. Create a local UniFi OS " +
+			"admin account at https://<controller>/users and reconfigure the add-on.")
+		return 1
+	}
+	if v, mac := uc.NVRInfo(); v != "" {
+		log.Printf("unifi: connected to NVR %s (Protect %s)", mac, v)
+	}
 	log.Printf("loaded %d camera(s)", len(src.snapshot()))
 
 	go rec.poll(ctx)
@@ -121,6 +164,9 @@ func run() int {
 		Fulfill:           &ghome.Handler{Source: src},
 		Registry:          registry,
 		WebRTC:            factory,
+		Discover: func(ctx context.Context) ([]discovery.Device, error) {
+			return discovery.Scan(ctx, 5*time.Second)
+		},
 	}
 	src.signaling = apiSrv
 

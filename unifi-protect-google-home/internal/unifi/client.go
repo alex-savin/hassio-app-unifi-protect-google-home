@@ -17,26 +17,62 @@ import (
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/config"
 )
 
+// IsDirectConnect reports whether host looks like a Ubiquiti DirectConnect
+// cloud hostname (e.g. "abc123.ui.direct"). Those endpoints terminate on a
+// publicly-trusted certificate, so TLS verification should always be on.
+func IsDirectConnect(host string) bool {
+	h := host
+	if i := strings.IndexByte(h, ':'); i >= 0 {
+		h = h[:i]
+	}
+	return strings.HasSuffix(strings.ToLower(h), ".ui.direct")
+}
+
 // Client talks to a UniFi Protect controller.
 type Client struct {
 	cfg  config.UniFi
 	base *url.URL
 	http *http.Client
 
-	mu        sync.Mutex
-	csrfToken string
-	loggedIn  bool
+	mu                sync.Mutex
+	csrfToken         string
+	loggedIn          bool
+	authUserCloudOnly bool
+	nvrVersion        string
+	nvrMAC            string
+}
+
+// AuthUserCloudOnly returns true when the user authenticated against the
+// controller is a Ubiquiti cloud (SSO) account rather than a local account.
+// Protect rejects most API actions for cloud-only users, so the bridge
+// refuses to start when this is the case. Populated by Bootstrap.
+func (c *Client) AuthUserCloudOnly() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.authUserCloudOnly
+}
+
+// NVRInfo returns the controller version and MAC last seen during Bootstrap.
+func (c *Client) NVRInfo() (version, mac string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.nvrVersion, c.nvrMAC
 }
 
 // New constructs a Client. Call Login before any other method.
+//
+// When the configured host is a DirectConnect (*.ui.direct) cloud hostname,
+// TLS verification is force-enabled regardless of cfg.VerifyTLS — those
+// endpoints present a publicly-trusted cert.
 func New(cfg config.UniFi) *Client {
 	base := &url.URL{Scheme: "https", Host: cfg.Host}
 	jar, _ := cookiejar.New(nil)
+	verify := cfg.VerifyTLS || IsDirectConnect(cfg.Host)
 	hc := &http.Client{
 		Timeout: 30 * time.Second,
 		Jar:     jar,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: !cfg.VerifyTLS}, //nolint:gosec
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !verify}, //nolint:gosec
 			IdleConnTimeout: 90 * time.Second,
 		},
 	}
@@ -148,7 +184,30 @@ func (c *Client) Bootstrap(ctx context.Context) ([]Camera, string, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&bs); err != nil {
 		return nil, "", fmt.Errorf("bootstrap: decode: %w", err)
 	}
+
+	cloudOnly := false
+	if bs.AuthUserID != "" {
+		for _, u := range bs.Users {
+			if u.ID == bs.AuthUserID && hasCloudAccount(u.CloudAccount) {
+				cloudOnly = true
+				break
+			}
+		}
+	}
+	c.mu.Lock()
+	c.authUserCloudOnly = cloudOnly
+	c.nvrVersion = bs.NVR.Version
+	c.nvrMAC = bs.NVR.MAC
+	c.mu.Unlock()
+
 	return bs.toCameras(), bs.LastUpdateID, nil
+}
+
+// hasCloudAccount returns true when the cloudAccount field is a non-null
+// object. Local users have it set to JSON null (or absent).
+func hasCloudAccount(raw json.RawMessage) bool {
+	s := bytes.TrimSpace([]byte(raw))
+	return len(s) > 0 && !bytes.Equal(s, []byte("null"))
 }
 
 // StreamURL builds the RTSPS URL for a camera+channel.
@@ -181,7 +240,21 @@ func (c *Client) Snapshot(ctx context.Context, camID string) ([]byte, error) {
 
 type bootstrapJSON struct {
 	LastUpdateID string       `json:"lastUpdateId"`
+	AuthUserID   string       `json:"authUserId"`
 	Cameras      []cameraJSON `json:"cameras"`
+	Users        []userJSON   `json:"users"`
+	NVR          nvrJSON      `json:"nvr"`
+}
+
+type userJSON struct {
+	ID           string          `json:"id"`
+	CloudAccount json.RawMessage `json:"cloudAccount"`
+}
+
+type nvrJSON struct {
+	Version string `json:"version"`
+	MAC     string `json:"mac"`
+	Name    string `json:"name"`
 }
 
 type cameraJSON struct {

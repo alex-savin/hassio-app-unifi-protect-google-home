@@ -1,3 +1,19 @@
+## 0.3.0
+
+- **Ingress setup UI.** The add-on now ships an in-Home-Assistant configuration panel (Web UI button on the add-on page). It scans the local network for UniFi consoles via UBNT UDP discovery, lets the user pick one, validates credentials against the Protect API, then writes the result back to the add-on options through the Supervisor REST API and triggers a restart — no manual YAML editing required.
+- New `internal/setup` package (`setup.html` + `Server`) serves `GET /`, `GET /api/discover`, `POST /api/validate`, `POST /api/save` on a dedicated ingress port (default `8100`). The public bridge port (`8099`) is untouched, so the option-mutating endpoints are reachable only through HA's authenticated ingress proxy.
+- `config.yaml`: enabled `ingress: true` + `ingress_port: 8100` + `panel_icon`/`panel_title`, and added `hassio_api: true` / `hassio_role: manager` so the add-on can call `/addons/self/{info,options,restart}`.
+- Setup-only mode: when `config.Load` fails (fresh install, blank UniFi credentials) and `$SUPERVISOR_TOKEN` is set, the bridge stays alive serving only the setup UI instead of exiting. Once the user saves valid settings the Supervisor restarts the add-on into normal operation.
+- The save flow refuses to persist credentials that fail validation (bad login, bootstrap failure, or Ubiquiti cloud/SSO account), preventing crash-restart loops.
+
+## 0.2.0
+
+- UBNT UDP discovery (`internal/discovery`): pure-Go translation of the upstream `unifi-discovery` library — broadcasts V1+V2 to `255.255.255.255:10001` and `233.89.188.1:10001`, parses TLV responses (hw_addr, hostname, platform, model, product_name, version, uptime).
+- New `GET /admin/discover` endpoint returns discovered UniFi consoles on the local network as JSON — useful for finding the correct `unifi.host` before reconfiguring the add-on.
+- Cloud-user guardrail: after the initial bootstrap the bridge refuses to start when the configured UniFi account is a Ubiquiti SSO/cloud user (Protect rejects API access for cloud accounts). Clear error message points the user at creating a local admin account.
+- DirectConnect (`*.ui.direct`) hostnames now automatically enable TLS verification regardless of `unifi.verify_tls` — those endpoints terminate on a publicly-trusted certificate.
+- Bootstrap parser now also captures the NVR version + MAC and logs `connected to NVR <mac> (Protect <version>)` at startup.
+
 ## 0.1.1
 
 - Make `bridge.public_base_url` optional in the schema (`url?`) so settings can be saved before a public URL is wired up. The bridge still validates the URL at startup when needed.

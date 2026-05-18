@@ -1,6 +1,6 @@
 ---
 name: "UniFi Protect → Google Home"
-version: "0.1.1"
+version: "0.3.0"
 slug: "unifi-protect-google-home"
 description: >-
   Bridge UniFi Protect cameras to Google Home via WebRTC (Cloud-to-Cloud CameraStream).
@@ -9,6 +9,15 @@ arch:
   - amd64
 startup: services
 init: false
+# Ingress: serves the autodiscovery + setup UI inside Home Assistant.
+ingress: true
+ingress_port: 8100
+panel_icon: mdi:cctv
+panel_title: "UniFi Protect"
+# Supervisor API access is required so the setup UI can write add-on
+# options and trigger a restart after the user picks a controller.
+hassio_api: true
+hassio_role: manager
 ports:
   8099/tcp: 8099
 ports_description:

@@ -63,6 +63,24 @@ post-rename re-syncs are skipped.
   reverse proxy in front (NGINX Proxy Manager, Cloudflare Tunnel, HA's own
   reverse proxy, etc.) so that `public_base_url` resolves to it over HTTPS.
 
+## Finding your UniFi console
+
+The easiest way is the **built-in setup UI**. Open the add-on page in Home
+Assistant and click **Open Web UI** (or use the *UniFi Protect* entry in
+the sidebar). The page scans the local network via UBNT UDP discovery,
+lists every console it finds, lets you pick one, validates the credentials
+against the Protect API, and writes the result back into the add-on
+options — followed by an automatic restart. No YAML editing required.
+
+If you prefer to script it, the bridge also exposes the raw discovery
+endpoint on the public port:
+
+```bash
+curl http://homeassistant.local:8099/admin/discover
+```
+
+Returns JSON like `{"devices":[{"source_ip":"192.168.1.1","hw_addr":"...","hostname":"UDM-Pro","version":"3.2.12",...}]}`.
+
 ## Troubleshooting
 
 - **Cameras don't appear** — Check `unifi.host`, credentials, and that the

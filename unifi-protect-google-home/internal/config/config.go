@@ -50,6 +50,21 @@ func (g Google) HomeGraphEnabled() bool {
 
 // Load reads JSON config from path. Returns an error if required fields are missing.
 func Load(path string) (*Config, error) {
+	c, err := LoadPartial(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.validate(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// LoadPartial reads JSON config from path and applies defaults but skips the
+// strict required-field validation. It is used by the ingress setup UI so the
+// add-on can start with empty/missing UniFi credentials and let the user fill
+// them in via the browser.
+func LoadPartial(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
@@ -66,9 +81,6 @@ func Load(path string) (*Config, error) {
 	}
 	if c.Bridge.LogLevel == "" {
 		c.Bridge.LogLevel = "info"
-	}
-	if err := c.validate(); err != nil {
-		return nil, err
 	}
 	return &c, nil
 }
