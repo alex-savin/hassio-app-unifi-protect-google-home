@@ -51,12 +51,17 @@ func parseLogLevel(s string) slog.Level {
 }
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	optsPath := flag.String("options", "/data/options.json", "Path to HA add-on options.json")
 	flag.Parse()
 
 	cfg, err := config.Load(*optsPath)
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		log.Printf("config: %v", err)
+		return 1
 	}
 
 	lvl := parseLogLevel(cfg.Bridge.LogLevel)
@@ -70,8 +75,8 @@ func main() {
 
 	uc := unifi.New(cfg.UniFi)
 	if err := uc.Login(ctx); err != nil {
-		stop()
-		log.Fatalf("unifi login: %v", err)
+		log.Printf("unifi login: %v", err)
+		return 1
 	}
 
 	registry := streams.NewRegistry()
@@ -81,8 +86,8 @@ func main() {
 	if cfg.Google.HomeGraphEnabled() {
 		hg, err = ghome.NewHomeGraph(cfg.Google.ProjectID, []byte(cfg.Google.ServiceAccountJSON))
 		if err != nil {
-			stop()
-			log.Fatalf("homegraph: %v", err)
+			log.Printf("homegraph: %v", err)
+			return 1
 		}
 		if hg == nil {
 			log.Printf("homegraph: no service account configured — RequestSync/ReportState disabled")
@@ -100,8 +105,8 @@ func main() {
 	}
 
 	if _, err := rec.refresh(ctx); err != nil {
-		stop()
-		log.Fatalf("initial bootstrap: %v", err)
+		log.Printf("initial bootstrap: %v", err)
+		return 1
 	}
 	log.Printf("loaded %d camera(s)", len(src.snapshot()))
 
@@ -125,19 +130,29 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	srvErr := make(chan error, 1)
 	go func() {
 		log.Printf("listening on %s", cfg.Bridge.ListenAddr)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			stop()
-			log.Fatalf("http: %v", err)
+			srvErr <- err
 		}
 	}()
 
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case err := <-srvErr:
+		log.Printf("http: %v", err)
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutCtx)
+		return 1
+	}
+
 	log.Printf("shutting down")
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(shutCtx)
+	return 0
 }
 
 // reconciler refreshes the camera list from the UniFi bootstrap and pushes
