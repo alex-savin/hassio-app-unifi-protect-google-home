@@ -1,3 +1,8 @@
+## 0.3.4
+
+- **Cameras now show live preview tiles in the Google Home app.** Set `cameraStreamSupportsPreview: true` in the SYNC attributes so each camera renders as an interactive tile with a live WebRTC preview when tapped in the Home app (previously they appeared as devices but could only be streamed via voice to a Cast display). Same signaling pipeline — no additional endpoints required.
+- After updating, trigger a re-SYNC: unlink and re-link the service in the Home app (Settings → Works with Google → Unifi Protect Bridge → Unlink, then Add), or wait for HomeGraph's periodic refresh.
+
 ## 0.3.3
 
 - **Fix black-screen streams (`write rtp: short buffer` flood).** The bridge previously forwarded RTSP RTP packets verbatim through pion's `TrackLocalStaticRTP`. pion's outbound RTP path has a hardcoded `outboundMTU = 1200` byte buffer, so UniFi Protect's ~1450-byte RTP packets failed every SRTP/ICE write with `io.ErrShortBuffer`. The display would show the green LIVE indicator but no frames. Switched to `TrackLocalStaticSample` fed by gortsplib's `rtph264.Decoder`: incoming RTP is depacketized into H.264 access units, SPS/PPS are injected before each IDR, and pion's built-in H.264 payloader re-fragments NAL units into FU-A packets that respect the 1200-byte MTU.
