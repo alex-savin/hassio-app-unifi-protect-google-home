@@ -163,7 +163,7 @@ func run() int {
 
 	go rec.poll(ctx)
 
-	oauthSrv := oauth.New(cfg.Google.OAuthClientID, cfg.Google.OAuthClientSecret, cfg.Bridge.ConsentPassword)
+	oauthSrv := oauth.New(cfg.Google.OAuthClientID, cfg.Google.OAuthClientSecret, cfg.Bridge.ConsentPassword, []byte(cfg.Bridge.StreamTokenSecret))
 	factory := wrtc.NewFactory()
 	apiSrv := &api.Server{
 		PublicBaseURL:     cfg.Bridge.PublicBaseURL,

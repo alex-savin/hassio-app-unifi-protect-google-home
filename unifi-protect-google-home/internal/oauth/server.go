@@ -12,14 +12,19 @@
 package oauth
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -27,20 +32,31 @@ import (
 const (
 	codeTTL         = 10 * time.Minute
 	accessTokenTTL  = 60 * time.Minute
-	refreshTokenLen = 32
-	accessTokenLen  = 32
+	refreshTokenTTL = 10 * 365 * 24 * time.Hour // effectively "never expires"
 )
 
-// Server is an in-memory OAuth 2.0 authorization server.
+// token kinds
+const (
+	tokenKindAccess  = "a"
+	tokenKindRefresh = "r"
+)
+
+// Server is an OAuth 2.0 authorization server.
+//
+// Authorization codes are kept in memory (one-time, 10-minute TTL — used
+// immediately during the link flow, so process restarts mid-link are not a
+// real-world concern). Access and refresh tokens are *stateless*: HMAC-signed
+// strings with an embedded expiry, so they survive add-on restarts without
+// needing on-disk storage. This prevents Google from de-binding the user
+// when our short in-memory cache is wiped by a restart.
 type Server struct {
 	ClientID     string
 	ClientSecret string
 	UserPassword string // gates the consent page; required
+	TokenSecret  []byte // HMAC-SHA256 key for signing access/refresh tokens
 
-	mu      sync.Mutex
-	codes   map[string]codeEntry
-	access  map[string]accessEntry
-	refresh map[string]struct{} // refresh tokens; long-lived
+	mu    sync.Mutex
+	codes map[string]codeEntry
 }
 
 type codeEntry struct {
@@ -48,19 +64,15 @@ type codeEntry struct {
 	Expires     time.Time
 }
 
-type accessEntry struct {
-	Expires time.Time
-}
-
-// New constructs a Server. consentPassword must be non-empty in production.
-func New(clientID, clientSecret, consentPassword string) *Server {
+// New constructs a Server. consentPassword and tokenSecret must be non-empty
+// in production.
+func New(clientID, clientSecret, consentPassword string, tokenSecret []byte) *Server {
 	return &Server{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		UserPassword: consentPassword,
+		TokenSecret:  tokenSecret,
 		codes:        map[string]codeEntry{},
-		access:       map[string]accessEntry{},
-		refresh:      map[string]struct{}{},
 	}
 }
 
@@ -175,41 +187,85 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	access := randomToken(accessTokenLen)
-	refresh := randomToken(refreshTokenLen)
-	s.mu.Lock()
-	s.access[access] = accessEntry{Expires: time.Now().Add(accessTokenTTL)}
-	s.refresh[refresh] = struct{}{}
-	s.mu.Unlock()
-
+	access, err := s.mintToken(tokenKindAccess, accessTokenTTL)
+	if err != nil {
+		writeTokenError(w, "server_error", "mint access")
+		return
+	}
+	refresh, err := s.mintToken(tokenKindRefresh, refreshTokenTTL)
+	if err != nil {
+		writeTokenError(w, "server_error", "mint refresh")
+		return
+	}
 	writeTokenJSON(w, access, refresh)
 }
 
 func (s *Server) refreshAccess(w http.ResponseWriter, r *http.Request) {
 	rt := r.PostFormValue("refresh_token")
-	s.mu.Lock()
-	_, ok := s.refresh[rt]
-	s.mu.Unlock()
-	if !ok {
-		writeTokenError(w, "invalid_grant", "unknown refresh_token")
+	if err := s.verifyToken(rt, tokenKindRefresh); err != nil {
+		writeTokenError(w, "invalid_grant", "refresh_token "+err.Error())
 		return
 	}
-	access := randomToken(accessTokenLen)
-	s.mu.Lock()
-	s.access[access] = accessEntry{Expires: time.Now().Add(accessTokenTTL)}
-	s.mu.Unlock()
+	access, err := s.mintToken(tokenKindAccess, accessTokenTTL)
+	if err != nil {
+		writeTokenError(w, "server_error", "mint access")
+		return
+	}
 	writeTokenJSON(w, access, "")
 }
 
 // Validate returns nil if accessToken is currently valid.
 func (s *Server) Validate(accessToken string) error {
-	s.mu.Lock()
-	entry, ok := s.access[accessToken]
-	s.mu.Unlock()
-	if !ok {
+	return s.verifyToken(accessToken, tokenKindAccess)
+}
+
+// mintToken builds an HMAC-signed, self-describing token of the form
+//
+//	<kind>.<exp_unix>.<nonce_b64url>.<hmac_b64url>
+//
+// The HMAC covers "<kind>.<exp>.<nonce>". Tokens are stateless, so they
+// survive add-on restarts without on-disk storage.
+func (s *Server) mintToken(kind string, ttl time.Duration) (string, error) {
+	if len(s.TokenSecret) == 0 {
+		return "", errors.New("oauth: token secret not configured")
+	}
+	nonce := make([]byte, 16)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	exp := time.Now().Add(ttl).Unix()
+	payload := fmt.Sprintf("%s.%d.%s", kind, exp, base64.RawURLEncoding.EncodeToString(nonce))
+	mac := hmac.New(sha256.New, s.TokenSecret)
+	_, _ = mac.Write([]byte(payload))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return payload + "." + sig, nil
+}
+
+// verifyToken parses, checks expiry, and verifies the HMAC of an issued token.
+func (s *Server) verifyToken(tok, wantKind string) error {
+	if len(s.TokenSecret) == 0 {
 		return ErrInvalidToken
 	}
-	if time.Now().After(entry.Expires) {
+	parts := strings.Split(tok, ".")
+	if len(parts) != 4 {
+		return ErrInvalidToken
+	}
+	kind, expStr, nonce, sig := parts[0], parts[1], parts[2], parts[3]
+	if kind != wantKind {
+		return ErrInvalidToken
+	}
+	exp, err := strconv.ParseInt(expStr, 10, 64)
+	if err != nil {
+		return ErrInvalidToken
+	}
+	if time.Now().Unix() > exp {
+		return ErrInvalidToken
+	}
+	payload := kind + "." + expStr + "." + nonce
+	mac := hmac.New(sha256.New, s.TokenSecret)
+	_, _ = mac.Write([]byte(payload))
+	want := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if subtle.ConstantTimeCompare([]byte(want), []byte(sig)) != 1 {
 		return ErrInvalidToken
 	}
 	return nil

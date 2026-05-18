@@ -1,3 +1,7 @@
+## 0.3.7
+
+- **Fix: HomeGraph `requestSync` 500 / cameras disappearing after restart.** OAuth access and refresh tokens were previously kept only in memory, so every add-on restart silently invalidated the tokens Google held for our integration. The first SYNC callback after restart would return `401` from `/smarthome`, the follow-up refresh would `400` from `/oauth/token`, and Google would purge the `agentUserId` binding — causing `requestSync` to fail with `500 INTERNAL` and the cameras to drop out of the Home app. Tokens are now stateless HMAC-signed strings (using `bridge.stream_token_secret`) with an embedded expiry; they survive restarts. Refresh tokens are valid for ten years, matching Google's expectation that they only expire when explicitly revoked.
+
 ## 0.3.6
 
 - **HomeGraph startup diagnostics.** Bridge now logs the service account's `client_email` and `project_id` at startup, and warns when `google.project_id` (add-on option) disagrees with the `project_id` inside the service account JSON. The `requestSync: 500 INTERNAL` error from HomeGraph almost always means the service account belongs to a different GCP project than the one that owns the Smart Home action in the Actions Console — this surfaces the mismatch without needing to inspect the JSON manually.
