@@ -74,7 +74,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   init:
-    name: Initialize build matrix
+    name: Read add-on version
     needs: bump-and-release
     if: |
       always() &&
@@ -82,7 +82,6 @@ jobs:
        needs.bump-and-release.result == 'success')
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
       version: ${{ steps.info.outputs.version }}
     steps:
       - name: Checkout repository
@@ -96,45 +95,15 @@ jobs:
           VERSION="$(yq eval '.version' "${ADDON_SLUG}/config.yaml")"
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
-      - name: Get build matrix
-        id: matrix
-        run: |
-          set -euo pipefail
-          # NOTE: prepare-multi-arch-matrix@2026.03.2 does not bubble its
-          # composite output reliably under release-triggered runs (the matrix
-          # output ends up empty downstream and the build job is skipped).
-          # Build the matrix inline instead — we only ship amd64.
-          matrix='{"include":[]}'
-          for arch in $(jq -r '.[]' <<< "${ARCHITECTURES}"); do
-            case "${arch}" in
-              amd64)   os="ubuntu-24.04" ;;
-              aarch64) os="ubuntu-24.04-arm" ;;
-              *)
-                echo "::error::Unsupported architecture: ${arch}"
-                exit 1
-                ;;
-            esac
-            matrix=$(jq -c \
-              --arg arch "$arch" \
-              --arg os "$os" \
-              --arg image "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${arch}-${ADDON_SLUG}" \
-              '.include += [{arch: $arch, os: $os, image: $image}]' <<< "${matrix}")
-          done
-          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
-          jq . <<< "${matrix}"
-
   build:
-    name: Build & push ${{ matrix.arch }} image
+    name: Build & push amd64 image
     needs: init
     if: needs.init.result == 'success'
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
       packages: write
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -144,9 +113,9 @@ jobs:
       - name: Build and push add-on image
         uses: home-assistant/builder/actions/build-image@2026.03.2
         with:
-          arch: ${{ matrix.arch }}
+          arch: amd64
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
-          image: ${{ matrix.image }}
+          image: ghcr.io/${{ github.repository_owner }}/amd64-${{ env.ADDON_SLUG }}
           image-tags: |
             ${{ needs.init.outputs.version }}
             latest
