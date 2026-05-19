@@ -141,12 +141,20 @@ func (h *Handler) query(reqID string, payload json.RawMessage) intentResponse {
 	for _, c := range h.Source.ListCameras() {
 		online[c.ID] = c.Online
 	}
+	results := make([]string, 0, len(p.Devices))
 	for _, d := range p.Devices {
+		on := online[d.ID]
+		if on {
+			results = append(results, d.ID+"=online")
+		} else {
+			results = append(results, d.ID+"=OFFLINE")
+		}
 		devices[d.ID] = map[string]any{
-			"online": online[d.ID],
+			"online": on,
 			"status": "SUCCESS",
 		}
 	}
+	log.Printf("ghome query: %d device(s) %v", len(p.Devices), results)
 	return intentResponse{
 		RequestID: reqID,
 		Payload:   map[string]any{"devices": devices},
@@ -206,10 +214,11 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 						"ids":    []string{d.ID},
 						"status": "SUCCESS",
 						"states": map[string]any{
-							"online":                true,
-							"cameraStreamProtocol":  "progressive_mp4",
-							"cameraStreamAccessUrl": url,
-							"cameraStreamAuthToken": tok,
+							"online":                    true,
+							"cameraStreamProtocol":      "progressive_mp4",
+							"cameraStreamAccessUrl":     url,
+							"cameraStreamAuthToken":     tok,
+							"cameraStreamReceiverAppId": "00F7C5DD",
 						},
 					})
 				default:

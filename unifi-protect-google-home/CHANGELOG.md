@@ -1,3 +1,9 @@
+## 0.3.21
+
+- **QUERY response logging.** v0.3.20 SYNC advertises `[progressive_mp4, webrtc]` correctly, but production logs show Google running SYNC + QUERY in quick succession and then never firing EXECUTE — strongly suggests QUERY is returning `online: false` for some cameras and the phone Home app then refuses to ask for a stream. The bridge now logs `ghome query: N device(s) [<id>=online|<id>=OFFLINE ...]` per QUERY so we can see exactly which devices Google thinks are unreachable.
+- **`cameraStreamReceiverAppId` in EXECUTE.** Matched Scrypted exactly: progressive_mp4 EXECUTE responses now include `cameraStreamReceiverAppId: "00F7C5DD"` (the standard Google Cast Camera Stream receiver), in addition to `cameraStreamAccessUrl`, `cameraStreamAuthToken`, and `cameraStreamProtocol`. Phones use the Cast SDK to actually decode the MP4, so a missing receiver app id can silently break playback on some surfaces.
+- **Lint cleanup.** Dropped use of the deprecated `fmp4.CodecH264` / `fmp4.NewSampleH264` symbols in `internal/mp4/muxer.go` in favour of the modern `mp4codecs.H264` type and `(*fmp4.Sample).FillH264` method. Unblocks `golangci-lint` (staticcheck SA1019) in CI.
+
 ## 0.3.20
 
 - **Pivot from HLS to `progressive_mp4`.** The 0.3.17 HLS path turned out not to be reachable from the Pixel Home app: after v0.3.18 forced a HomeGraph RequestSync and v0.3.19 confirmed `cameraStreamSupportedProtocols: ["webrtc","hls"]` was making it into SYNC, the phone tile still never produced an EXECUTE — only the Hub Max did, and only ever for WebRTC. Cross-checked against the Scrypted google-home plugin and confirmed it advertises `["progressive_mp4","webrtc"]` with `cameraStreamNeedAuthToken: true` (hls/dash/smooth_stream are explicitly commented out as not consumed by cloud-to-cloud Smart Home actions). The bridge now matches that shape exactly.
