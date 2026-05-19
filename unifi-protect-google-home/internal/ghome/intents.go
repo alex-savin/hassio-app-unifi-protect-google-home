@@ -105,7 +105,6 @@ func (h *Handler) sync(reqID string) intentResponse {
 			Attributes: map[string]any{
 				"cameraStreamSupportedProtocols": []string{"webrtc"},
 				"cameraStreamNeedAuthToken":      false,
-				"cameraStreamSupportsPreview":    true,
 			},
 			DeviceInfo: &deviceInfo{
 				Manufacturer: c.Manufacturer,

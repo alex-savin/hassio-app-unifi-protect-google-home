@@ -1,3 +1,8 @@
+## 0.3.14
+
+- **Phone Home app camera feed.** Tapping a camera in the Google Home app on Android/iOS previously opened only the device info pane — no live video — even though the same camera streamed fine on Nest Hub Max. Root cause: the WebRTC signaling endpoint only accepted the RFC-style `{"type":"offer","sdp":"..."}` shape (what Cast/Hub Max uses). The phone Home app instead posts the Google Smart Home shape `{"action":"offer","sdp":"..."}` (matching how Scrypted's `google-home` plugin handles it). The signaling handler now accepts all three documented offer shapes (`type+sdp`, `action+sdp`, and `{"offer":"<sdp>"}`) and mirrors the matching response shape (`{"type":"answer",...}`, `{"action":"answer",...}`, or `{"answer":"..."}`) so each client decodes the answer it expects. Logs now record `signaling: camera <id> offer shape=<...> (sdp N bytes)` for visibility.
+- **Dropped the bogus `cameraStreamSupportsPreview` SYNC attribute** — not part of the official `CameraStream` trait spec and may confuse some clients.
+
 ## 0.3.13
 
 - **Camera “back online” detection hardened.** The Test Suite's OnlineOffline “make it online” step was timing out at ~40s because Protect doesn't always emit a `state` field on reconnect — some firmwares send `isConnected: true` or re-emit the camera under an `"add"` action instead of `"update"`. The WS handler now decodes online state via a `decodeOnline()` helper that accepts both `state` (`"CONNECTED"`/`"DISCONNECTED"`) and `isConnected` (bool), and reacts to both `"update"` and `"add"` actions. Also widened the field-filter so `isConnected`-only updates still trigger a refresh.

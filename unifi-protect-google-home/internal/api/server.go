@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -155,17 +156,86 @@ func (s *Server) signalHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var offer wrtc.SignalingOffer
-	if err := json.NewDecoder(r.Body).Decode(&offer); err != nil {
+	var raw map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		http.Error(w, "bad offer", http.StatusBadRequest)
 		return
 	}
+	offerSDP, shape := extractOfferSDP(raw)
+	if offerSDP == "" {
+		log.Printf("signaling: empty offer (keys=%v)", mapKeys(raw))
+		http.Error(w, "bad offer: no sdp", http.StatusBadRequest)
+		return
+	}
+	log.Printf("signaling: camera %s offer shape=%s (sdp %d bytes)", camID, shape, len(offerSDP))
 
-	_, answer, err := s.WebRTC.Negotiate(r.Context(), stream, offer)
+	_, answer, err := s.WebRTC.Negotiate(r.Context(), stream, wrtc.SignalingOffer{SDP: offerSDP, Type: "offer"})
 	if err != nil {
 		http.Error(w, "negotiate: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(answer)
+	_ = json.NewEncoder(w).Encode(buildAnswer(shape, answer.SDP))
+}
+
+// signalingShape is the request style used by the calling client. Each
+// shape has a corresponding response style so the client can decode the
+// answer it expects.
+type signalingShape int
+
+const (
+	// shapeTypeSDP is the RFC-WebRTC shape: {"type":"offer","sdp":"..."}.
+	// Used by Cast/Hub Max.
+	shapeTypeSDP signalingShape = iota
+	// shapeActionSDP is the Google Smart Home / Scrypted shape:
+	// {"action":"offer","sdp":"..."}. Used by the Home phone app.
+	shapeActionSDP
+	// shapeOffer is the simplest shape from Google's published samples:
+	// {"offer":"<sdp string>"}.
+	shapeOffer
+)
+
+func (s signalingShape) String() string {
+	switch s {
+	case shapeActionSDP:
+		return "action+sdp"
+	case shapeOffer:
+		return "offer"
+	default:
+		return "type+sdp"
+	}
+}
+
+func extractOfferSDP(raw map[string]any) (string, signalingShape) {
+	if v, ok := raw["action"].(string); ok && strings.EqualFold(v, "offer") {
+		if sdp, ok := raw["sdp"].(string); ok && sdp != "" {
+			return sdp, shapeActionSDP
+		}
+	}
+	if v, ok := raw["offer"].(string); ok && v != "" {
+		return v, shapeOffer
+	}
+	if sdp, ok := raw["sdp"].(string); ok && sdp != "" {
+		return sdp, shapeTypeSDP
+	}
+	return "", shapeTypeSDP
+}
+
+func buildAnswer(shape signalingShape, sdp string) map[string]any {
+	switch shape {
+	case shapeActionSDP:
+		return map[string]any{"action": "answer", "sdp": sdp}
+	case shapeOffer:
+		return map[string]any{"answer": sdp}
+	default:
+		return map[string]any{"type": "answer", "sdp": sdp}
+	}
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
