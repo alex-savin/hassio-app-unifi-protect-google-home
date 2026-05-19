@@ -100,6 +100,21 @@ func (h *Handler) handle(req intentRequest) intentResponse {
 }
 
 func (h *Handler) sync(reqID string) intentResponse {
+	devices, protocols := h.buildSyncDevices()
+	log.Printf("ghome sync: returning %d device(s) cameraStreamSupportedProtocols=%v", len(devices), protocols)
+	return intentResponse{
+		RequestID: reqID,
+		Payload: map[string]any{
+			"agentUserId": "unifi-protect-bridge",
+			"devices":     devices,
+		},
+	}
+}
+
+// buildSyncDevices materialises the SYNC device list without any logging
+// side effects, so it can be called both from sync() (real intent) and
+// from SyncFingerprint() (offline fingerprint).
+func (h *Handler) buildSyncDevices() ([]device, []string) {
 	cams := h.Source.ListCameras()
 	devices := make([]device, 0, len(cams))
 	// Advertise the three protocols Google's surfaces actually consume:
@@ -134,14 +149,7 @@ func (h *Handler) sync(reqID string) intentResponse {
 			},
 		})
 	}
-	log.Printf("ghome sync: returning %d device(s) cameraStreamSupportedProtocols=%v", len(devices), protocols)
-	return intentResponse{
-		RequestID: reqID,
-		Payload: map[string]any{
-			"agentUserId": "unifi-protect-bridge",
-			"devices":     devices,
-		},
-	}
+	return devices, protocols
 }
 
 // SyncFingerprint returns a stable hex SHA-256 over the current SYNC
@@ -157,8 +165,7 @@ func (h *Handler) sync(reqID string) intentResponse {
 // Devices are sorted by ID for determinism; Go's encoding/json already
 // emits map keys in sorted order, so Attributes is stable too.
 func (h *Handler) SyncFingerprint() string {
-	resp := h.sync("")
-	devs, _ := resp.Payload["devices"].([]device)
+	devs, _ := h.buildSyncDevices()
 	sorted := make([]device, len(devs))
 	copy(sorted, devs)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })

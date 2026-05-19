@@ -1,3 +1,7 @@
+## 0.3.24
+
+- **Cosmetic log fix.** `SyncFingerprint()` is called once per startup to decide whether to issue `HomeGraph RequestSync`, and it used to internally invoke `sync("")` which always emitted `ghome sync: returning N device(s) cameraStreamSupportedProtocols=[...]`. Production logs therefore showed an extra "sync returning" line at startup that looked like Google had sent a real SYNC intent when it hadn't. Refactored: the device-list builder is now a separate `buildSyncDevices()` helper that returns the slice without logging, and only the real `sync()` intent path logs.
+
 ## 0.3.23
 
 - **Re-advertise HLS alongside `progressive_mp4` and `webrtc`.** The Android Home app on phones does not decode `progressive_mp4` or `webrtc` natively for cloud-to-cloud camera integrations — it only renders **HLS**. v0.3.20 dropped HLS to match Scrypted, which explained why production logs after v0.3.20–v0.3.22 showed Google running `SYNC` and `QUERY` but never `EXECUTE / GetCameraStream` when the user tapped a tile in the phone Home app: the phone's `SupportedStreamProtocols` had no overlap with `["progressive_mp4","webrtc"]`, so Home silently fell back to "preview only". This is exactly how Arlo's first-party Google Home integration works on the phone (it advertises HLS too). SYNC now emits `cameraStreamSupportedProtocols: ["hls", "progressive_mp4", "webrtc"]`.
