@@ -1,3 +1,8 @@
+## 0.3.12
+
+- **Immediate online/offline propagation.** When the UniFi Protect updates WebSocket emits a camera `state` change, the bridge now decodes it directly from the WS frame and pushes a `ReportState({online})` to HomeGraph synchronously — no longer waiting for the debounced bootstrap re-fetch. The in-memory snapshot is also updated in place so subsequent `QUERY` intents see the new value within milliseconds. Fixes Google Home Test Suite “OnlineOffline” failing to observe the device going offline.
+- **Safety-net bootstrap loop reduced from 5 min to 60 s** as a defence-in-depth fallback in case a WS event is missed.
+
 ## 0.3.11
 
 - **Doorbell ring notifications.** The bridge now watches the UniFi Protect updates WebSocket for changes to a camera's `lastRing` field and pushes a Google Home `ObjectDetection` notification (`objects.named: ["Doorbell Press"]`) to HomeGraph. Combined with the `DOORBELL` device type and `notificationSupportedByAgent: true` from 0.3.10, this gives you a phone push and a doorbell-tile ring badge in the Home app when someone presses the G4 Doorbell. New `HomeGraph.Notify()` helper posts to `reportStateAndNotification` with an `eventId` for dedupe, and doorbells now also declare `action.devices.traits.ObjectDetection` in SYNC so Google knows to accept these events.

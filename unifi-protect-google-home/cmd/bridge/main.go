@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"log"
 	"log/slog"
@@ -28,7 +29,7 @@ import (
 	wrtc "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/webrtc"
 )
 
-const bootstrapInterval = 5 * time.Minute
+const bootstrapInterval = 60 * time.Second
 
 // slogWriter routes stdlib `log` output through slog so existing log.Printf
 // call sites are subject to the configured level filter. Messages are emitted
@@ -312,6 +313,12 @@ func (r *reconciler) watchEvents(ctx context.Context, fire func()) {
 				if _, ok := ev.Fields["lastRing"]; ok {
 					r.handleRing(ev.ID)
 				}
+				if raw, ok := ev.Fields["state"]; ok {
+					var s string
+					if err := json.Unmarshal(raw, &s); err == nil {
+						r.handleStateChange(ev.ID, strings.EqualFold(s, "CONNECTED"))
+					}
+				}
 			}
 			// add/remove always triggers a refresh; for "update" only react if
 			// fields we care about changed (state / name / channels).
@@ -425,6 +432,30 @@ func (r *reconciler) refresh(ctx context.Context) (string, error) {
 	return lastUpdateID, nil
 }
 
+// handleStateChange propagates a camera online/offline transition observed
+// on the Protect updates WebSocket directly to HomeGraph, without waiting
+// for the debounced bootstrap refresh. The Google Home Test Suite's
+// OnlineOffline test polls QUERY and expects state to flip within a few
+// seconds of the camera physically going offline.
+func (r *reconciler) handleStateChange(camID string, online bool) {
+	changed, cam, ok := r.src.setOnline(camID, online)
+	if !ok || !changed {
+		return
+	}
+	log.Printf("camera %s (%s) -> online=%v", camID, cam.Name, online)
+	if r.hg == nil {
+		return
+	}
+	states := map[string]map[string]any{camID: {"online": online}}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := r.hg.ReportState(ctx, r.agentUserID, states); err != nil {
+			log.Printf("homegraph reportState (state %s): %v", cam.Name, err)
+		}
+	}()
+}
+
 // handleRing pushes a Google Home ObjectDetection notification for a
 // doorbell press. Non-doorbell cameras are ignored. Errors are logged but
 // not returned — a missed ring shouldn't crash the bridge.
@@ -487,6 +518,25 @@ func (s *cameraSource) set(cams []ghome.Camera) {
 	s.mu.Lock()
 	s.cameras = cams
 	s.mu.Unlock()
+}
+
+// setOnline flips the cached online flag for a single camera. Returns
+// (changed, camera, exists). When the camera is not in the current snapshot
+// exists is false and the caller should fall back to a full bootstrap.
+func (s *cameraSource) setOnline(camID string, online bool) (bool, ghome.Camera, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.cameras {
+		if c.ID != camID {
+			continue
+		}
+		if c.Online == online {
+			return false, c, true
+		}
+		s.cameras[i].Online = online
+		return true, s.cameras[i], true
+	}
+	return false, ghome.Camera{}, false
 }
 
 func (s *cameraSource) snapshot() []ghome.Camera {
