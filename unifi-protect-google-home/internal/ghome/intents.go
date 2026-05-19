@@ -16,6 +16,7 @@ package ghome
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 // Camera is what fulfillment needs to know about each device.
@@ -66,6 +67,11 @@ func (h *Handler) handle(req intentRequest) intentResponse {
 		return h.query(req.RequestID, in.Payload)
 	case "action.devices.EXECUTE":
 		return h.execute(req.RequestID, in.Payload)
+	case "action.devices.DISCONNECT":
+		// User unlinked the integration in the Google Home app. Google
+		// expects a 200 with an empty body; we have no per-user state to
+		// clear because OAuth tokens are stateless.
+		return intentResponse{RequestID: req.RequestID, Payload: map[string]any{}}
 	default:
 		return intentResponse{RequestID: req.RequestID}
 	}
@@ -75,14 +81,20 @@ func (h *Handler) sync(reqID string) intentResponse {
 	cams := h.Source.ListCameras()
 	devices := make([]device, 0, len(cams))
 	for _, c := range cams {
+		devType := "action.devices.types.CAMERA"
+		if strings.Contains(strings.ToLower(c.Model), "doorbell") ||
+			strings.Contains(strings.ToLower(c.Name), "doorbell") {
+			devType = "action.devices.types.DOORBELL"
+		}
 		devices = append(devices, device{
 			ID:   c.ID,
-			Type: "action.devices.types.CAMERA",
+			Type: devType,
 			Traits: []string{
 				"action.devices.traits.CameraStream",
 			},
-			Name:            deviceName{Name: c.Name},
-			WillReportState: true,
+			Name:                       deviceName{Name: c.Name},
+			WillReportState:            true,
+			NotificationSupportedByAgent: true,
 			Attributes: map[string]any{
 				"cameraStreamSupportedProtocols": []string{"webrtc"},
 				"cameraStreamNeedAuthToken":      false,
@@ -178,13 +190,14 @@ type intentResponse struct {
 }
 
 type device struct {
-	ID              string         `json:"id"`
-	Type            string         `json:"type"`
-	Traits          []string       `json:"traits"`
-	Name            deviceName     `json:"name"`
-	WillReportState bool           `json:"willReportState"`
-	Attributes      map[string]any `json:"attributes,omitempty"`
-	DeviceInfo      *deviceInfo    `json:"deviceInfo,omitempty"`
+	ID                           string         `json:"id"`
+	Type                         string         `json:"type"`
+	Traits                       []string       `json:"traits"`
+	Name                         deviceName     `json:"name"`
+	WillReportState              bool           `json:"willReportState"`
+	NotificationSupportedByAgent bool           `json:"notificationSupportedByAgent,omitempty"`
+	Attributes                   map[string]any `json:"attributes,omitempty"`
+	DeviceInfo                   *deviceInfo    `json:"deviceInfo,omitempty"`
 }
 
 type deviceName struct {

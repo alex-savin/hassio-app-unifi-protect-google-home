@@ -1,3 +1,10 @@
+## 0.3.10
+
+- **Polish pass against Scrypted's `google-home` plugin.** Added three things that plugin gets right and we were missing:
+  - **`action.devices.DISCONNECT` intent handler.** When the user unlinks UniFi Protect from the Home app, Google posts a DISCONNECT to `/smarthome`. We were returning an empty body with no `requestId`; Google would log it as malformed. Now we 200 with the proper requestId echo.
+  - **`notificationSupportedByAgent: true`** on every device in SYNC. Required for doorbell ring notifications and any future ObjectDetection events.
+  - **`action.devices.types.DOORBELL`** for cameras whose model or name contains "doorbell" (your G4 Doorbell). The Home app renders these as a doorbell tile with a ring badge instead of a generic camera tile.
+
 ## 0.3.9
 
 - **Fix: `reportStateAndNotification` 400 `INVALID_ARGUMENT`.** The reconciler was including `"status": "SUCCESS"` alongside `online` in each per-device state map. That key is part of the QUERY response schema, not ReportState — HomeGraph rejects the whole batch when it appears. ReportState payloads now contain only the actual state fields.
