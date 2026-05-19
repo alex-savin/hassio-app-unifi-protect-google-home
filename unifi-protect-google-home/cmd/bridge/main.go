@@ -22,6 +22,7 @@ import (
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/discovery"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/ghome"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/hls"
+	mp4srv "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/mp4"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/oauth"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/setup"
@@ -189,6 +190,8 @@ func run() int {
 	factory := wrtc.NewFactory()
 	hlsSrv := hls.NewServer(src.rtspURLOf)
 	defer hlsSrv.Shutdown()
+	mp4Srv := mp4srv.NewServer(src.rtspURLOf)
+	defer mp4Srv.Shutdown()
 	apiSrv := &api.Server{
 		PublicBaseURL:     cfg.Bridge.PublicBaseURL,
 		StreamTokenSecret: []byte(cfg.Bridge.StreamTokenSecret),
@@ -197,6 +200,7 @@ func run() int {
 		Registry:          registry,
 		WebRTC:            factory,
 		HLS:               hlsSrv,
+		MP4:               mp4Srv,
 		Discover: func(ctx context.Context) ([]discovery.Device, error) {
 			return discovery.Scan(ctx, 5*time.Second)
 		},
@@ -629,6 +633,10 @@ func (s *cameraSource) SignalingURL(camID string) (string, error) {
 
 func (s *cameraSource) HLSURL(camID string) (string, error) {
 	return s.signaling.HLSURL(camID)
+}
+
+func (s *cameraSource) ProgressiveMP4URL(camID string) (string, string, error) {
+	return s.signaling.ProgressiveMP4URL(camID)
 }
 
 // setRTSPURL records the RTSP url + TLS-verify flag for a camera so the

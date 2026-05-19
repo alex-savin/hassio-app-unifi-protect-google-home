@@ -44,9 +44,10 @@ type Source interface {
 	// SignalingURL returns an absolute URL Google will POST the SDP offer to.
 	// Implementations should embed a short-lived signed token.
 	SignalingURL(camID string) (url string, err error)
-	// HLSURL returns an absolute, HMAC-signed URL pointing at the camera's
-	// HLS playlist for use as cameraStreamAccessUrl on phone surfaces.
-	HLSURL(camID string) (url string, err error)
+	// ProgressiveMP4URL returns the camera's progressive_mp4 stream URL and
+	// the bearer token Google should send as the Authorization header for
+	// `cameraStreamAuthToken`.
+	ProgressiveMP4URL(camID string) (url string, token string, err error)
 }
 
 // Handler is the HTTP entrypoint for the Smart Home Action fulfillment URL.
@@ -93,7 +94,10 @@ func (h *Handler) handle(req intentRequest) intentResponse {
 func (h *Handler) sync(reqID string) intentResponse {
 	cams := h.Source.ListCameras()
 	devices := make([]device, 0, len(cams))
-	protocols := []string{"webrtc", "hls"}
+	// Match Scrypted's google-home plugin exactly: phones do not consume
+	// hls/dash from cloud-to-cloud actions in practice, only progressive_mp4
+	// and webrtc. Hub Max picks webrtc; everything else picks progressive_mp4.
+	protocols := []string{"progressive_mp4", "webrtc"}
 	for _, c := range cams {
 		devType := "action.devices.types.CAMERA"
 		traits := []string{"action.devices.traits.CameraStream"}
@@ -110,7 +114,8 @@ func (h *Handler) sync(reqID string) intentResponse {
 			NotificationSupportedByAgent: true,
 			Attributes: map[string]any{
 				"cameraStreamSupportedProtocols": protocols,
-				"cameraStreamNeedAuthToken":      false,
+				"cameraStreamNeedAuthToken":      true,
+				"cameraStreamNeedDrmEncryption":  false,
 			},
 			DeviceInfo: &deviceInfo{
 				Manufacturer: c.Manufacturer,
@@ -166,14 +171,12 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 
 			// Protocol selection rule (matches Scrypted's google-home plugin):
 			// the only client that exclusively lists "webrtc" is Cast/Hub Max,
-			// and it's also the only client that can actually decode the WebRTC
-			// stream a Smart Home action delivers. Every other surface (phone
-			// Home app, web view, Chromecast Audio fallback) lists hls/dash/etc.
-			// — give them HLS. When SupportedStreamProtocols is missing entirely
-			// (older clients), prefer HLS too because it's the more compatible
-			// path.
+			// and it's also the only client that decodes the WebRTC stream a
+			// Smart Home action delivers. Every other surface (phone Home app,
+			// web view) lists progressive_mp4 (and sometimes hls/dash/smooth_stream
+			// which we do not implement) — those get progressive_mp4.
 			useWebRTC := len(supported) == 1 && containsFold(supported, "webrtc")
-			useHLS := !useWebRTC && (len(supported) == 0 || containsFold(supported, "hls"))
+			useMP4 := !useWebRTC && (len(supported) == 0 || containsFold(supported, "progressive_mp4"))
 
 			for _, d := range cmd.Devices {
 				switch {
@@ -193,8 +196,8 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 							"cameraStreamAuthToken":    "",
 						},
 					})
-				case useHLS:
-					url, err := h.Source.HLSURL(d.ID)
+				case useMP4:
+					url, tok, err := h.Source.ProgressiveMP4URL(d.ID)
 					if err != nil {
 						commands = append(commands, deviceErr(d.ID, "deviceOffline"))
 						continue
@@ -204,13 +207,13 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 						"status": "SUCCESS",
 						"states": map[string]any{
 							"online":                true,
-							"cameraStreamProtocol":  "hls",
+							"cameraStreamProtocol":  "progressive_mp4",
 							"cameraStreamAccessUrl": url,
-							"cameraStreamAuthToken": "",
+							"cameraStreamAuthToken": tok,
 						},
 					})
 				default:
-					log.Printf("ghome execute: camera %s requested protocols %v — no overlap with [webrtc,hls], returning functionNotSupported", d.ID, supported)
+					log.Printf("ghome execute: camera %s requested protocols %v — no overlap with [webrtc,progressive_mp4], returning functionNotSupported", d.ID, supported)
 					commands = append(commands, deviceErr(d.ID, "functionNotSupported"))
 				}
 			}

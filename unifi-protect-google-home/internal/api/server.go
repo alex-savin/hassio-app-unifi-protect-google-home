@@ -18,6 +18,7 @@ import (
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/discovery"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/ghome"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/hls"
+	mp4srv "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/mp4"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/oauth"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/streams"
 	wrtc "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/webrtc"
@@ -37,6 +38,7 @@ type Server struct {
 	Registry *streams.Registry
 	WebRTC   *wrtc.Factory
 	HLS      *hls.Server
+	MP4      *mp4srv.Server
 
 	// Discover, when non-nil, enables GET /admin/discover.
 	Discover DiscoverFunc
@@ -51,6 +53,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/webrtc/signal", s.signalHandler)
 	if s.HLS != nil {
 		mux.HandleFunc("/hls/", s.hlsHandler)
+	}
+	if s.MP4 != nil {
+		mux.HandleFunc("/mp4/", s.mp4Handler)
 	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -122,6 +127,23 @@ func (s *Server) HLSURL(camID string) (string, error) {
 	tok := s.signToken(camID, exp)
 	return fmt.Sprintf("%s/hls/%s/%d/%s/index.m3u8",
 		strings.TrimRight(s.PublicBaseURL, "/"), camID, exp, tok), nil
+}
+
+// ProgressiveMP4URL builds the camera's stream URL plus a bearer token
+// suitable for Google's CameraStream `cameraStreamAuthToken` field.
+//
+// Google passes the auth token in the Authorization header on the GET to
+// `cameraStreamAccessUrl`, so we keep the URL itself clean of credentials
+// and embed the expiry + HMAC inside the token.
+//
+// Token format: "<unix-exp>.<base64url-hmac(camID|exp)>".
+func (s *Server) ProgressiveMP4URL(camID string) (url string, token string, err error) {
+	exp := time.Now().Add(1 * time.Hour).Unix()
+	sig := s.signToken(camID, exp)
+	url = fmt.Sprintf("%s/mp4/%s/stream.mp4",
+		strings.TrimRight(s.PublicBaseURL, "/"), camID)
+	token = fmt.Sprintf("%d.%s", exp, sig)
+	return url, token, nil
 }
 
 func (s *Server) signToken(camID string, exp int64) string {
@@ -282,4 +304,49 @@ func (s *Server) hlsHandler(w http.ResponseWriter, r *http.Request) {
 	u.Path = "/" + camID + "/" + rest
 	r2.URL = &u
 	s.HLS.ServeHTTP(w, &r2)
+}
+
+// mp4Handler validates the bearer token Google passes in the Authorization
+// header, then forwards the request to the progressive_mp4 server.
+//
+// URL layout: /mp4/<camID>/stream.mp4
+// Authorization: Bearer <exp>.<hmac>
+//
+// We accept GET (Google's normal path) and also tolerate the rare HEAD
+// the Test Suite uses for capability probes.
+func (s *Server) mp4Handler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	trimmed := strings.TrimPrefix(r.URL.Path, "/mp4/")
+	parts := strings.SplitN(trimmed, "/", 2)
+	if len(parts) < 2 {
+		http.Error(w, "bad mp4 path", http.StatusBadRequest)
+		return
+	}
+	camID := parts[0]
+
+	hdr := r.Header.Get("Authorization")
+	tok := strings.TrimPrefix(hdr, "Bearer ")
+	if tok == hdr || tok == "" {
+		http.Error(w, "missing bearer", http.StatusUnauthorized)
+		return
+	}
+	dot := strings.IndexByte(tok, '.')
+	if dot <= 0 {
+		http.Error(w, "bad token", http.StatusUnauthorized)
+		return
+	}
+	expStr, sig := tok[:dot], tok[dot+1:]
+	if err := s.verifyToken(camID, expStr, sig); err != nil {
+		http.Error(w, "unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	r2 := *r
+	u := *r.URL
+	u.Path = "/" + camID + "/" + parts[1]
+	r2.URL = &u
+	s.MP4.ServeHTTP(w, &r2)
 }
