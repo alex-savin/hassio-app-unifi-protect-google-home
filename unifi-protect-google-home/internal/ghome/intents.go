@@ -69,6 +69,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handle(req intentRequest) intentResponse {
 	in := req.Inputs[0]
+	log.Printf("ghome intent: %s (reqID=%s)", in.Intent, req.RequestID)
 	switch in.Intent {
 	case "action.devices.SYNC":
 		return h.sync(req.RequestID)

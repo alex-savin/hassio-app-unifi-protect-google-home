@@ -1,3 +1,7 @@
+## 0.3.16
+
+- **Intent-level log line.** `Handler.handle()` now logs `ghome intent: <intent> (reqID=...)` for every Smart Home POST so SYNC / QUERY / EXECUTE / DISCONNECT traffic is visible in the add-on log alongside the existing nginx access log. Closes a diagnostic gap discovered while investigating the blank phone tile.
+
 ## 0.3.15
 
 - **Diagnostic logging for `GetCameraStream` requests.** `execute()` now parses and logs the `SupportedStreamProtocols` array Google sends per EXECUTE — the field that tells us what the calling surface (Hub Max vs. phone Home app vs. Chromecast) can play back. Logged as `ghome execute: GetCameraStream devices=[...] SupportedStreamProtocols=[...]`.
