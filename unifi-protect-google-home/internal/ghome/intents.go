@@ -15,6 +15,7 @@ package ghome
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -150,7 +151,28 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 			if exec.Command != "action.devices.commands.GetCameraStream" {
 				continue
 			}
+			supported := extractSupportedProtocols(exec.Params)
+			ids := make([]string, 0, len(cmd.Devices))
 			for _, d := range cmd.Devices {
+				ids = append(ids, d.ID)
+			}
+			log.Printf("ghome execute: GetCameraStream devices=%v SupportedStreamProtocols=%v", ids, supported)
+
+			// Phones (and most non-Cast surfaces) do not include "webrtc"
+			// in SupportedStreamProtocols — they ask for hls / dash /
+			// progressive_mp4 / smooth_stream. We only serve WebRTC today,
+			// so be explicit instead of pretending we can satisfy them.
+			canWebRTC := len(supported) == 0 || containsFold(supported, "webrtc")
+			for _, d := range cmd.Devices {
+				if !canWebRTC {
+					log.Printf("ghome execute: camera %s requested protocols %v — no overlap with [webrtc], returning functionNotSupported", d.ID, supported)
+					commands = append(commands, map[string]any{
+						"ids":       []string{d.ID},
+						"status":    "ERROR",
+						"errorCode": "functionNotSupported",
+					})
+					continue
+				}
 				url, err := h.Source.SignalingURL(d.ID)
 				if err != nil {
 					commands = append(commands, map[string]any{
@@ -167,6 +189,7 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 						"online":                   true,
 						"cameraStreamProtocol":     "webrtc",
 						"cameraStreamSignalingUrl": url,
+						"cameraStreamAuthToken":    "",
 					},
 				})
 			}
@@ -176,6 +199,36 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 		RequestID: reqID,
 		Payload:   map[string]any{"commands": commands},
 	}
+}
+
+func extractSupportedProtocols(params map[string]any) []string {
+	if params == nil {
+		return nil
+	}
+	raw, ok := params["SupportedStreamProtocols"]
+	if !ok {
+		return nil
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, v := range arr {
+		if s, ok := v.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func containsFold(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if strings.EqualFold(s, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- intent JSON shapes ---
