@@ -1,3 +1,7 @@
+## 0.3.9
+
+- **Fix: `reportStateAndNotification` 400 `INVALID_ARGUMENT`.** The reconciler was including `"status": "SUCCESS"` alongside `online` in each per-device state map. That key is part of the QUERY response schema, not ReportState — HomeGraph rejects the whole batch when it appears. ReportState payloads now contain only the actual state fields.
+
 ## 0.3.8
 
 - **Fix: Test Suite "Device is not online before the test" failure.** The Google Smart Home Test Suite reads device online status from HomeGraph's ReportState cache, not by calling QUERY. Previously the bridge only pushed `reportStateAndNotification` when a camera's online state *changed*, so on a freshly linked account the cache was empty and every device appeared offline. The reconciler now pushes an initial ReportState entry for every camera the first time it observes it, populating the cache as soon as the bridge starts.
