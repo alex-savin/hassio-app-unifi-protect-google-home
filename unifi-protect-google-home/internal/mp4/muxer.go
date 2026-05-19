@@ -44,6 +44,7 @@ import (
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4/seekablebuffer"
+	mp4codecs "github.com/bluenviron/mediacommon/v2/pkg/formats/mp4/codecs"
 	"github.com/pion/rtp"
 )
 
@@ -377,7 +378,7 @@ func (m *Muxer) buildInit() error {
 			{
 				ID:        1,
 				TimeScale: h264Timescale,
-				Codec: &fmp4.CodecH264{
+				Codec: &mp4codecs.H264{
 					SPS: append([]byte(nil), m.sps...),
 					PPS: append([]byte(nil), m.pps...),
 				},
@@ -396,9 +397,9 @@ func (m *Muxer) buildInit() error {
 // fans it out to every current subscriber. Drops the fragment for slow
 // subscribers rather than blocking — they'll recover from the next IDR.
 func (m *Muxer) emitFragment(au [][]byte, duration uint32, isIDR bool) error {
-	sample, err := fmp4.NewSampleH264(0, au)
-	if err != nil {
-		return fmt.Errorf("new sample: %w", err)
+	sample := &fmp4.Sample{}
+	if err := sample.FillH264(0, au); err != nil {
+		return fmt.Errorf("fill sample: %w", err)
 	}
 	sample.Duration = duration
 	sample.IsNonSyncSample = !isIDR

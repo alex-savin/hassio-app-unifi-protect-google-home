@@ -131,7 +131,7 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: unifi-protect-google-home/coverage.out
           fail_ci_if_error: false
