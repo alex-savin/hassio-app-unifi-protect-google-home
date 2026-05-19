@@ -182,6 +182,19 @@ func run() int {
 		go startupRequestSync(hg, fulfill, cfg.Bridge.AgentUserID, syncStatePath)
 	}
 
+	// Expose live runtime state to the ingress setup UI so the side-panel
+	// page can render NVR info, the live camera list, and Google linkage.
+	if setupSrv != nil {
+		setupSrv.SetStatus(&bridgeStatus{
+			cfg:           cfg,
+			uc:            uc,
+			src:           src,
+			fulfill:       fulfill,
+			hg:            hg,
+			syncStatePath: syncStatePath,
+		})
+	}
+
 	go rec.poll(ctx)
 
 	oauthSrv := oauth.New(cfg.Google.OAuthClientID, cfg.Google.OAuthClientSecret, cfg.Bridge.ConsentPassword, []byte(cfg.Bridge.StreamTokenSecret))
@@ -712,3 +725,71 @@ func (s *cameraSource) rtspURLOf(camID string) (string, bool, bool) {
 	}
 	return e.URL, e.VerifyTLS, true
 }
+
+// bridgeStatus is the setup.StatusProvider implementation backed by the
+// running bridge. Every call materialises a fresh snapshot from the live
+// cameraSource and config so the ingress UI shows up-to-date data.
+type bridgeStatus struct {
+	cfg           *config.Config
+	uc            *unifi.Client
+	src           *cameraSource
+	fulfill       *ghome.Handler
+	hg            *ghome.HomeGraph
+	syncStatePath string
+}
+
+// Status implements setup.StatusProvider.
+func (b *bridgeStatus) Status() setup.StatusSnapshot {
+	cams := b.src.snapshot()
+	nvrVer, nvrMAC := b.uc.NVRInfo()
+
+	out := setup.StatusSnapshot{
+		SetupMode: false,
+		UniFi: setup.UniFiStatus{
+			Host:       b.cfg.UniFi.Host,
+			Connected:  nvrMAC != "",
+			NVRMAC:     nvrMAC,
+			NVRVersion: nvrVer,
+		},
+		Bridge: setup.BridgeStatus{
+			PublicBaseURL: b.cfg.Bridge.PublicBaseURL,
+			PublicURLSet:  b.cfg.Bridge.PublicBaseURL != "",
+			AgentUserID:   b.cfg.Bridge.AgentUserID,
+			ListenAddr:    b.cfg.Bridge.ListenAddr,
+		},
+		Google: setup.GoogleStatus{
+			HomeGraphEnabled:    b.cfg.Google.HomeGraphEnabled(),
+			HomeGraphConfigured: b.hg != nil,
+			ProjectID:           b.cfg.Google.ProjectID,
+			OAuthConfigured:     b.cfg.Google.OAuthClientID != "" && b.cfg.Google.OAuthClientSecret != "",
+		},
+	}
+	if b.hg != nil {
+		out.Google.ServiceAccountEmail = b.hg.ServiceAccountEmail()
+		saProj := b.hg.ServiceAccountProjectID()
+		out.Google.ProjectIDMismatch = b.cfg.Google.ProjectID != "" && saProj != "" && b.cfg.Google.ProjectID != saProj
+	}
+	out.Cameras = make([]setup.CameraInfo, 0, len(cams))
+	for _, c := range cams {
+		out.Cameras = append(out.Cameras, setup.CameraInfo{
+			ID:       c.ID,
+			Name:     c.Name,
+			Model:    c.Model,
+			Online:   c.Online,
+			Doorbell: ghome.IsDoorbell(c),
+		})
+	}
+	// Persisted SYNC fingerprint (so the UI can confirm Google has the
+	// current device list and that we're under quota).
+	if b.syncStatePath != "" {
+		if data, err := os.ReadFile(b.syncStatePath); err == nil {
+			var st syncStateFile
+			if json.Unmarshal(data, &st) == nil && st.Fingerprint != "" {
+				out.Bridge.SyncStateKnown = true
+				out.Bridge.SyncFingerprint = st.Fingerprint
+			}
+		}
+	}
+	return out
+}
+

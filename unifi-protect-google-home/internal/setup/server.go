@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/config"
@@ -39,6 +40,28 @@ type Server struct {
 	HTTP *http.Client
 	// ScanTimeout caps each UDP discovery run. Defaults to 5s.
 	ScanTimeout time.Duration
+
+	// status is a swappable provider of live runtime state. Wired via
+	// SetStatus from cmd/bridge once bootstrap completes. nil until then
+	// (the handler returns SetupMode=true).
+	status atomic.Value // holds StatusProvider
+}
+
+// SetStatus registers a live status provider. Safe to call concurrently
+// with HTTP handlers — the value is swapped atomically.
+func (s *Server) SetStatus(p StatusProvider) {
+	if s == nil {
+		return
+	}
+	s.status.Store(statusBox{p})
+}
+
+// statusBox lets us store a typed nil through atomic.Value without panic.
+type statusBox struct{ p StatusProvider }
+
+func (s *Server) loadStatus() StatusProvider {
+	v, _ := s.status.Load().(statusBox)
+	return v.p
 }
 
 // New returns a Server configured from the standard add-on environment.
@@ -61,10 +84,37 @@ func New() *Server {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.indexHandler)
+	mux.HandleFunc("/api/status", s.statusHandler)
 	mux.HandleFunc("/api/discover", s.discoverHandler)
 	mux.HandleFunc("/api/validate", s.validateHandler)
 	mux.HandleFunc("/api/save", s.saveHandler)
 	return mux
+}
+
+// statusHandler returns a JSON snapshot of the running bridge. When no
+// StatusProvider has been registered (bridge still initializing or running
+// in setup-only mode), SetupMode is true and the other fields are zero.
+func (s *Server) statusHandler(w http.ResponseWriter, r *http.Request) {
+	var snap StatusSnapshot
+	if p := s.loadStatus(); p != nil {
+		snap = p.Status()
+	} else {
+		snap.SetupMode = true
+	}
+	// Best-effort: enrich with the add-on version from Supervisor. Failures
+	// here are non-fatal — the rest of the snapshot is still useful.
+	if s.Token != "" {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if info, err := s.supervisorJSON(ctx, http.MethodGet, "/addons/self/info", nil); err == nil {
+			if data, ok := info["data"].(map[string]any); ok {
+				if v, _ := data["version"].(string); v != "" {
+					snap.Version = v
+				}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, snap)
 }
 
 func (s *Server) indexHandler(w http.ResponseWriter, r *http.Request) {

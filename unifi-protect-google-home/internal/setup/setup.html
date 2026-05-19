@@ -31,11 +31,30 @@
   .alert-error { background: rgba(255,82,82,.18); color: #b00020; }
   .alert-ok    { background: rgba(46,160,67,.18); color: #1a7f1f; }
   code { font-family: ui-monospace, monospace; font-size: .9em; }
+  .card { border: 1px solid rgba(127,127,127,.25); border-radius: 6px; padding: .75rem 1rem; margin: .5rem 0; }
+  .card h3 { margin: .25rem 0 .5rem; font-size: 1rem; }
+  .pill { display: inline-block; padding: .1rem .55rem; border-radius: 12px; font-size: .8rem; font-weight: 600; }
+  .pill-ok   { background: rgba(46,160,67,.20); color: #1a7f1f; }
+  .pill-warn { background: rgba(255,180,0,.22); color: #8a5a00; }
+  .pill-err  { background: rgba(255,82,82,.20); color: #b00020; }
+  .pill-mute { background: rgba(127,127,127,.18); color: #555; }
+  .kv { display: grid; grid-template-columns: 11rem 1fr; gap: .25rem .75rem; font-size: .9rem; }
+  .kv dt { color: #777; }
+  .kv dd { margin: 0; word-break: break-all; }
+  details > summary { cursor: pointer; font-weight: 600; margin: 1rem 0 .25rem; }
 </style>
 </head>
 <body>
   <h1>UniFi Protect → Google Home</h1>
-  <p class="muted">Discover your UniFi Protect controller and write the connection settings back to the add-on configuration.</p>
+  <p class="muted">Live status of the add-on plus tools to reconfigure your UniFi Protect controller.
+     <span id="versionLabel" class="muted"></span></p>
+
+  <h2>Status <button id="refreshBtn" style="font-size:.8rem; padding:.2rem .6rem; margin-left:.5rem">Refresh</button></h2>
+  <div id="statusPanel"><p class="muted">Loading…</p></div>
+
+  <details id="setupDetails">
+    <summary>Reconfigure UniFi Protect</summary>
+    <p class="muted">Run this if you need to change the controller host or credentials. Saving will restart the add-on.</p>
 
   <h2>1. Discover</h2>
   <button id="scanBtn">Scan local network</button>
@@ -71,6 +90,7 @@
   <button id="testBtn">Test connection</button>
   <button id="saveBtn" class="primary" disabled>Save &amp; restart add-on</button>
   <div id="result"></div>
+  </details>
 
 <script>
 const API = './api';
@@ -169,6 +189,114 @@ function esc(s) {
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   }[c]));
 }
+
+function pill(kind, label) {
+  return `<span class="pill pill-${kind}">${esc(label)}</span>`;
+}
+
+function row(k, v) {
+  return `<dt>${esc(k)}</dt><dd>${v}</dd>`;
+}
+
+async function refreshStatus() {
+  try {
+    const r = await fetch(API + '/status', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const s = await r.json();
+    renderStatus(s);
+  } catch (e) {
+    $('statusPanel').innerHTML =
+      `<div class="alert alert-error">Could not load status: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderStatus(s) {
+  if (s.version) {
+    $('versionLabel').textContent = ' · v' + s.version;
+  }
+  const setupOpen = !!s.setup_mode || !s.unifi || !s.unifi.connected;
+  $('setupDetails').open = setupOpen;
+
+  // --- UniFi card ---
+  const u = s.unifi || {};
+  const uPill = u.connected
+    ? pill('ok', 'connected')
+    : (s.setup_mode ? pill('warn', 'not configured') : pill('err', 'disconnected'));
+  const uniFiCard = `
+    <div class="card">
+      <h3>UniFi Protect ${uPill}</h3>
+      <dl class="kv">
+        ${row('Host', u.host ? `<code>${esc(u.host)}</code>` : '<i>(unset)</i>')}
+        ${u.nvr_mac ? row('NVR MAC', `<code>${esc(u.nvr_mac)}</code>`) : ''}
+        ${u.nvr_version ? row('Protect version', esc(u.nvr_version)) : ''}
+      </dl>
+    </div>`;
+
+  // --- Cameras card ---
+  const cams = s.cameras || [];
+  let camsBody;
+  if (s.setup_mode) {
+    camsBody = '<p class="muted">Pending UniFi configuration.</p>';
+  } else if (cams.length === 0) {
+    camsBody = '<p class="muted">No cameras discovered. Make sure the configured user has at least Viewer access on every camera in Protect.</p>';
+  } else {
+    const rows = cams.map(c => `
+      <tr>
+        <td>${esc(c.name)}${c.doorbell ? ' ' + pill('mute', 'doorbell') : ''}</td>
+        <td>${esc(c.model || '')}</td>
+        <td>${c.online ? pill('ok', 'online') : pill('err', 'offline')}</td>
+        <td><code style="font-size:.75rem">${esc(c.id)}</code></td>
+      </tr>`).join('');
+    camsBody = `
+      <table>
+        <thead><tr><th>Name</th><th>Model</th><th>State</th><th>ID</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+  const camsCard = `
+    <div class="card">
+      <h3>Cameras ${pill(cams.length ? 'ok' : 'mute', cams.length + ' total')}</h3>
+      ${camsBody}
+    </div>`;
+
+  // --- Google card ---
+  const g = s.google || {};
+  let gPill;
+  if (!g.homegraph_enabled) gPill = pill('mute', 'HomeGraph disabled');
+  else if (!g.homegraph_configured) gPill = pill('warn', 'service account missing');
+  else if (g.project_id_mismatch) gPill = pill('err', 'project_id mismatch');
+  else gPill = pill('ok', 'ready');
+  const googleCard = `
+    <div class="card">
+      <h3>Google Home ${gPill}</h3>
+      <dl class="kv">
+        ${row('HomeGraph', g.homegraph_enabled ? (g.homegraph_configured ? 'enabled (service account loaded)' : 'enabled but service account missing') : 'disabled via option')}
+        ${g.project_id ? row('Project ID', `<code>${esc(g.project_id)}</code>`) : ''}
+        ${g.service_account_email ? row('Service account', `<code>${esc(g.service_account_email)}</code>`) : ''}
+        ${row('OAuth client', g.oauth_configured ? pill('ok', 'configured') : pill('warn', 'missing'))}
+        ${g.project_id_mismatch ? `<dt></dt><dd>${pill('err', 'project_id does not match service account')}</dd>` : ''}
+      </dl>
+    </div>`;
+
+  // --- Bridge card ---
+  const b = s.bridge || {};
+  const bPill = b.public_url_set ? pill('ok', 'public URL set') : pill('warn', 'no public URL');
+  const bridgeCard = `
+    <div class="card">
+      <h3>Bridge ${bPill}</h3>
+      <dl class="kv">
+        ${row('Public base URL', b.public_base_url ? `<code>${esc(b.public_base_url)}</code>` : '<i>(unset — Google cannot reach fulfillment)</i>')}
+        ${row('Listen address', b.listen_addr ? `<code>${esc(b.listen_addr)}</code>` : '')}
+        ${row('Agent user ID', b.agent_user_id ? `<code>${esc(b.agent_user_id)}</code>` : '')}
+        ${row('SYNC fingerprint', b.sync_state_known ? `<code>${esc((b.sync_fingerprint||'').slice(0,12))}\u2026</code> ${pill('ok','persisted')}` : pill('mute', 'not yet sent'))}
+      </dl>
+    </div>`;
+
+  $('statusPanel').innerHTML = uniFiCard + camsCard + googleCard + bridgeCard;
+}
+
+$('refreshBtn').onclick = refreshStatus;
+refreshStatus();
 </script>
 </body>
 </html>

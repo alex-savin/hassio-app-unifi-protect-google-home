@@ -86,6 +86,59 @@ func TestIndex_ServesHTML(t *testing.T) {
 	}
 }
 
+// staticStatus is a trivial StatusProvider for tests.
+type staticStatus struct{ s StatusSnapshot }
+
+func (x staticStatus) Status() StatusSnapshot { return x.s }
+
+func TestStatus_NoProvider_ReturnsSetupMode(t *testing.T) {
+	s := &Server{}
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+	if rr.Code != 200 {
+		t.Fatalf("status=%d", rr.Code)
+	}
+	var snap StatusSnapshot
+	if err := json.Unmarshal(rr.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if !snap.SetupMode {
+		t.Fatalf("expected setup_mode=true when no provider is registered, got %+v", snap)
+	}
+}
+
+func TestStatus_WithProvider_ReturnsLiveData(t *testing.T) {
+	s := &Server{}
+	s.SetStatus(staticStatus{s: StatusSnapshot{
+		UniFi:   UniFiStatus{Host: "1.2.3.4", Connected: true, NVRMAC: "AA:BB", NVRVersion: "5.1.0"},
+		Cameras: []CameraInfo{{ID: "abc", Name: "Driveway", Online: true}},
+		Google:  GoogleStatus{HomeGraphEnabled: true, HomeGraphConfigured: true, ProjectID: "p"},
+		Bridge:  BridgeStatus{PublicBaseURL: "https://x", PublicURLSet: true, ListenAddr: "0.0.0.0:8099"},
+	}})
+
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+	if rr.Code != 200 {
+		t.Fatalf("status=%d", rr.Code)
+	}
+	var snap StatusSnapshot
+	if err := json.Unmarshal(rr.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if snap.SetupMode {
+		t.Fatalf("setup_mode should be false when provider returns data")
+	}
+	if !snap.UniFi.Connected || snap.UniFi.Host != "1.2.3.4" {
+		t.Fatalf("unifi: %+v", snap.UniFi)
+	}
+	if len(snap.Cameras) != 1 || snap.Cameras[0].Name != "Driveway" {
+		t.Fatalf("cameras: %+v", snap.Cameras)
+	}
+	if !snap.Google.HomeGraphConfigured || snap.Google.ProjectID != "p" {
+		t.Fatalf("google: %+v", snap.Google)
+	}
+}
+
 func TestSave_RejectsBadCredentials(t *testing.T) {
 	// No host/username/password → probe returns error before any HTTP calls.
 	sup := newFakeSupervisor(t)
