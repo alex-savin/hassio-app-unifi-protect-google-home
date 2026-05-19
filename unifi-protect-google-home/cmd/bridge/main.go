@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"log"
 	"log/slog"
@@ -302,6 +304,15 @@ func (r *reconciler) watchEvents(ctx context.Context, fire func()) {
 			if ev.ModelKey != "camera" {
 				continue
 			}
+			// Detect doorbell ring events. Protect signals these as an
+			// update to the camera's `lastRing` field (an epoch-ms
+			// timestamp). Push a Google Home ObjectDetection
+			// notification so the Home app rings the user's phone.
+			if ev.Action == "update" {
+				if _, ok := ev.Fields["lastRing"]; ok {
+					r.handleRing(ev.ID)
+				}
+			}
 			// add/remove always triggers a refresh; for "update" only react if
 			// fields we care about changed (state / name / channels).
 			if ev.Action == "update" {
@@ -412,6 +423,40 @@ func (r *reconciler) refresh(ctx context.Context) (string, error) {
 	}
 	r.src.setLastUpdateID(lastUpdateID)
 	return lastUpdateID, nil
+}
+
+// handleRing pushes a Google Home ObjectDetection notification for a
+// doorbell press. Non-doorbell cameras are ignored. Errors are logged but
+// not returned — a missed ring shouldn't crash the bridge.
+func (r *reconciler) handleRing(camID string) {
+	if r.hg == nil {
+		return
+	}
+	cam, ok := r.src.snapshotMap()[camID]
+	if !ok || !ghome.IsDoorbell(cam) {
+		return
+	}
+	var nonce [8]byte
+	_, _ = rand.Read(nonce[:])
+	eventID := hex.EncodeToString(nonce[:])
+	notifications := map[string]map[string]any{
+		camID: {
+			"ObjectDetection": map[string]any{
+				"priority":           0,
+				"detectionTimestamp": time.Now().UnixMilli(),
+				"objects":            map[string]any{"named": []string{"Doorbell Press"}},
+			},
+		},
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := r.hg.Notify(ctx, r.agentUserID, eventID, notifications); err != nil {
+			log.Printf("homegraph notify (ring %s): %v", cam.Name, err)
+			return
+		}
+		log.Printf("doorbell ring %s -> notified", cam.Name)
+	}()
 }
 
 // cameraSource is the ghome.Source implementation backed by an atomic

@@ -114,6 +114,27 @@ func (h *HomeGraph) ReportState(ctx context.Context, agentUserID string, states 
 	return h.postAuthed(ctx, homeGraphReportURL, body)
 }
 
+// Notify pushes a per-device notification (e.g. ObjectDetection for a
+// doorbell press) to Google. notifications must contain at least one entry.
+// eventID is a per-call identifier — Google uses it to dedupe and to
+// correlate updateable notifications across pushes.
+func (h *HomeGraph) Notify(ctx context.Context, agentUserID, eventID string, notifications map[string]map[string]any) error {
+	if len(notifications) == 0 {
+		return nil
+	}
+	body, _ := json.Marshal(map[string]any{
+		"requestId":   newRequestID(),
+		"agentUserId": agentUserID,
+		"eventId":     eventID,
+		"payload": map[string]any{
+			"devices": map[string]any{
+				"notifications": notifications,
+			},
+		},
+	})
+	return h.postAuthed(ctx, homeGraphReportURL, body)
+}
+
 // --- internals ---
 
 func (h *HomeGraph) postAuthed(ctx context.Context, url string, body []byte) error {

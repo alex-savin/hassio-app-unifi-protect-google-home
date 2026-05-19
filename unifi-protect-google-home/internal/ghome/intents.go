@@ -28,6 +28,14 @@ type Camera struct {
 	Online       bool
 }
 
+// IsDoorbell reports whether the camera should be exposed as a Google Home
+// DOORBELL device (renders as a doorbell tile and can emit ring
+// notifications via the ObjectDetection trait).
+func IsDoorbell(c Camera) bool {
+	return strings.Contains(strings.ToLower(c.Model), "doorbell") ||
+		strings.Contains(strings.ToLower(c.Name), "doorbell")
+}
+
 // Source supplies fulfillment with the current camera list and per-request
 // signaling URLs.
 type Source interface {
@@ -82,18 +90,17 @@ func (h *Handler) sync(reqID string) intentResponse {
 	devices := make([]device, 0, len(cams))
 	for _, c := range cams {
 		devType := "action.devices.types.CAMERA"
-		if strings.Contains(strings.ToLower(c.Model), "doorbell") ||
-			strings.Contains(strings.ToLower(c.Name), "doorbell") {
+		traits := []string{"action.devices.traits.CameraStream"}
+		if IsDoorbell(c) {
 			devType = "action.devices.types.DOORBELL"
+			traits = append(traits, "action.devices.traits.ObjectDetection")
 		}
 		devices = append(devices, device{
-			ID:   c.ID,
-			Type: devType,
-			Traits: []string{
-				"action.devices.traits.CameraStream",
-			},
-			Name:                       deviceName{Name: c.Name},
-			WillReportState:            true,
+			ID:                           c.ID,
+			Type:                         devType,
+			Traits:                       traits,
+			Name:                         deviceName{Name: c.Name},
+			WillReportState:              true,
 			NotificationSupportedByAgent: true,
 			Attributes: map[string]any{
 				"cameraStreamSupportedProtocols": []string{"webrtc"},

@@ -1,3 +1,7 @@
+## 0.3.11
+
+- **Doorbell ring notifications.** The bridge now watches the UniFi Protect updates WebSocket for changes to a camera's `lastRing` field and pushes a Google Home `ObjectDetection` notification (`objects.named: ["Doorbell Press"]`) to HomeGraph. Combined with the `DOORBELL` device type and `notificationSupportedByAgent: true` from 0.3.10, this gives you a phone push and a doorbell-tile ring badge in the Home app when someone presses the G4 Doorbell. New `HomeGraph.Notify()` helper posts to `reportStateAndNotification` with an `eventId` for dedupe, and doorbells now also declare `action.devices.traits.ObjectDetection` in SYNC so Google knows to accept these events.
+
 ## 0.3.10
 
 - **Polish pass against Scrypted's `google-home` plugin.** Added three things that plugin gets right and we were missing:
