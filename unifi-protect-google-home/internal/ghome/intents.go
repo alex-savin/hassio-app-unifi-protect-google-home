@@ -44,6 +44,9 @@ type Source interface {
 	// SignalingURL returns an absolute URL Google will POST the SDP offer to.
 	// Implementations should embed a short-lived signed token.
 	SignalingURL(camID string) (url string, err error)
+	// HLSURL returns an absolute, HMAC-signed URL pointing at the camera's
+	// HLS playlist for use as cameraStreamAccessUrl on phone surfaces.
+	HLSURL(camID string) (url string, err error)
 }
 
 // Handler is the HTTP entrypoint for the Smart Home Action fulfillment URL.
@@ -105,7 +108,7 @@ func (h *Handler) sync(reqID string) intentResponse {
 			WillReportState:              true,
 			NotificationSupportedByAgent: true,
 			Attributes: map[string]any{
-				"cameraStreamSupportedProtocols": []string{"webrtc"},
+				"cameraStreamSupportedProtocols": []string{"webrtc", "hls"},
 				"cameraStreamNeedAuthToken":      false,
 			},
 			DeviceInfo: &deviceInfo{
@@ -159,46 +162,69 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 			}
 			log.Printf("ghome execute: GetCameraStream devices=%v SupportedStreamProtocols=%v", ids, supported)
 
-			// Phones (and most non-Cast surfaces) do not include "webrtc"
-			// in SupportedStreamProtocols — they ask for hls / dash /
-			// progressive_mp4 / smooth_stream. We only serve WebRTC today,
-			// so be explicit instead of pretending we can satisfy them.
-			canWebRTC := len(supported) == 0 || containsFold(supported, "webrtc")
+			// Protocol selection rule (matches Scrypted's google-home plugin):
+			// the only client that exclusively lists "webrtc" is Cast/Hub Max,
+			// and it's also the only client that can actually decode the WebRTC
+			// stream a Smart Home action delivers. Every other surface (phone
+			// Home app, web view, Chromecast Audio fallback) lists hls/dash/etc.
+			// — give them HLS. When SupportedStreamProtocols is missing entirely
+			// (older clients), prefer HLS too because it's the more compatible
+			// path.
+			useWebRTC := len(supported) == 1 && containsFold(supported, "webrtc")
+			useHLS := !useWebRTC && (len(supported) == 0 || containsFold(supported, "hls"))
+
 			for _, d := range cmd.Devices {
-				if !canWebRTC {
-					log.Printf("ghome execute: camera %s requested protocols %v — no overlap with [webrtc], returning functionNotSupported", d.ID, supported)
+				switch {
+				case useWebRTC:
+					url, err := h.Source.SignalingURL(d.ID)
+					if err != nil {
+						commands = append(commands, deviceErr(d.ID, "deviceOffline"))
+						continue
+					}
 					commands = append(commands, map[string]any{
-						"ids":       []string{d.ID},
-						"status":    "ERROR",
-						"errorCode": "functionNotSupported",
+						"ids":    []string{d.ID},
+						"status": "SUCCESS",
+						"states": map[string]any{
+							"online":                   true,
+							"cameraStreamProtocol":     "webrtc",
+							"cameraStreamSignalingUrl": url,
+							"cameraStreamAuthToken":    "",
+						},
 					})
-					continue
-				}
-				url, err := h.Source.SignalingURL(d.ID)
-				if err != nil {
+				case useHLS:
+					url, err := h.Source.HLSURL(d.ID)
+					if err != nil {
+						commands = append(commands, deviceErr(d.ID, "deviceOffline"))
+						continue
+					}
 					commands = append(commands, map[string]any{
-						"ids":       []string{d.ID},
-						"status":    "ERROR",
-						"errorCode": "deviceOffline",
+						"ids":    []string{d.ID},
+						"status": "SUCCESS",
+						"states": map[string]any{
+							"online":                true,
+							"cameraStreamProtocol":  "hls",
+							"cameraStreamAccessUrl": url,
+							"cameraStreamAuthToken": "",
+						},
 					})
-					continue
+				default:
+					log.Printf("ghome execute: camera %s requested protocols %v — no overlap with [webrtc,hls], returning functionNotSupported", d.ID, supported)
+					commands = append(commands, deviceErr(d.ID, "functionNotSupported"))
 				}
-				commands = append(commands, map[string]any{
-					"ids":    []string{d.ID},
-					"status": "SUCCESS",
-					"states": map[string]any{
-						"online":                   true,
-						"cameraStreamProtocol":     "webrtc",
-						"cameraStreamSignalingUrl": url,
-						"cameraStreamAuthToken":    "",
-					},
-				})
 			}
 		}
 	}
 	return intentResponse{
 		RequestID: reqID,
 		Payload:   map[string]any{"commands": commands},
+	}
+}
+
+func deviceErr(id, code string) map[string]any {
+	return map[string]any{
+		"ids":       []string{id},
+		"status":    "ERROR",
+		"errorCode": code,
 	}
 }
 

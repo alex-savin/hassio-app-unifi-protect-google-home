@@ -21,6 +21,7 @@ import (
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/config"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/discovery"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/ghome"
+	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/hls"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/oauth"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/setup"
@@ -168,6 +169,8 @@ func run() int {
 
 	oauthSrv := oauth.New(cfg.Google.OAuthClientID, cfg.Google.OAuthClientSecret, cfg.Bridge.ConsentPassword, []byte(cfg.Bridge.StreamTokenSecret))
 	factory := wrtc.NewFactory()
+	hlsSrv := hls.NewServer(src.rtspURLOf)
+	defer hlsSrv.Shutdown()
 	apiSrv := &api.Server{
 		PublicBaseURL:     cfg.Bridge.PublicBaseURL,
 		StreamTokenSecret: []byte(cfg.Bridge.StreamTokenSecret),
@@ -175,6 +178,7 @@ func run() int {
 		Fulfill:           &ghome.Handler{Source: src},
 		Registry:          registry,
 		WebRTC:            factory,
+		HLS:               hlsSrv,
 		Discover: func(ctx context.Context) ([]discovery.Device, error) {
 			return discovery.Scan(ctx, 5*time.Second)
 		},
@@ -401,6 +405,7 @@ func (r *reconciler) refresh(ctx context.Context) (string, error) {
 		}
 		prod := rtsp.NewProducer(cam.ID, url, r.verifyTLS)
 		r.reg.Put(streams.NewStream(cam.ID, prod))
+		r.src.setRTSPURL(cam.ID, url, r.verifyTLS)
 		log.Printf("registered camera %s (%s) %dx%d", cam.ID, cam.Name, ch.Width, ch.Height)
 	}
 
@@ -528,8 +533,15 @@ func (r *reconciler) handleRing(camID string) {
 type cameraSource struct {
 	mu           sync.RWMutex
 	cameras      []ghome.Camera
+	rtspURLs     map[string]rtspEntry
 	lastUpdateId string
 	signaling    *api.Server
+}
+
+// rtspEntry is the per-camera info the HLS muxer needs to open upstream.
+type rtspEntry struct {
+	URL       string
+	VerifyTLS bool
 }
 
 func (s *cameraSource) lastUpdateID() string {
@@ -595,4 +607,31 @@ func (s *cameraSource) ListCameras() []ghome.Camera { return s.snapshot() }
 
 func (s *cameraSource) SignalingURL(camID string) (string, error) {
 	return s.signaling.SignalingURL(camID)
+}
+
+func (s *cameraSource) HLSURL(camID string) (string, error) {
+	return s.signaling.HLSURL(camID)
+}
+
+// setRTSPURL records the RTSP url + TLS-verify flag for a camera so the
+// HLS muxer can look it up by ID.
+func (s *cameraSource) setRTSPURL(camID, url string, verifyTLS bool) {
+	s.mu.Lock()
+	if s.rtspURLs == nil {
+		s.rtspURLs = make(map[string]rtspEntry)
+	}
+	s.rtspURLs[camID] = rtspEntry{URL: url, VerifyTLS: verifyTLS}
+	s.mu.Unlock()
+}
+
+// rtspURLOf is the hls.Source signature: returns the upstream RTSP URL
+// and whether the upstream TLS certificate should be verified.
+func (s *cameraSource) rtspURLOf(camID string) (string, bool, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	e, ok := s.rtspURLs[camID]
+	if !ok {
+		return "", false, false
+	}
+	return e.URL, e.VerifyTLS, true
 }

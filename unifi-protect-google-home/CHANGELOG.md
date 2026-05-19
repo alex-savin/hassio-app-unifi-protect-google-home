@@ -1,4 +1,12 @@
-## 0.3.16
+## 0.3.17
+
+- **HLS support for the Google Home phone app.** Tapping a camera tile in the phone Home app previously returned `functionNotSupported` (as of 0.3.15) because the only protocol we advertised — WebRTC — is not in the phone's `SupportedStreamProtocols` list. The bridge now ships an embedded RTSP→HLS muxer (built on `gohlslib/v2`) and a new HMAC-signed route `/hls/<camID>/<exp>/<sig>/index.m3u8`. SYNC declares `cameraStreamSupportedProtocols: ["webrtc","hls"]` and EXECUTE branches per Scrypted's rule:
+  - clients that list **only** `webrtc` (Cast / Hub Max) → existing WebRTC path;
+  - everything else (phones, web, fallback surfaces) → HLS, returned as `cameraStreamProtocol: "hls"` with a per-camera signed `cameraStreamAccessUrl`.
+- **Pragmatic HLS pipeline.** Each first request to a camera's playlist spins up a dedicated `gortsplib` session against the upstream Protect RTSP URL (TCP transport, honouring `unifi.verify_tls`), pulls H.264 access units, re-injects SPS/PPS in front of every IDR, and emits MPEG-TS segments via gohlslib (7-segment window, 1 s min duration). Per-camera muxers shut themselves down after 30 s of idle so we don't pin a Protect session for cameras nobody is watching. Token lives in the URL path so the relative segment URIs in the playlist inherit auth automatically.
+- **No regression for Hub Max / Cast.** The WebRTC path is untouched — Hub Max still gets its existing `cameraStreamSignalingUrl`. Only surfaces that explicitly declined WebRTC are routed to HLS.
+
+
 
 - **Intent-level log line.** `Handler.handle()` now logs `ghome intent: <intent> (reqID=...)` for every Smart Home POST so SYNC / QUERY / EXECUTE / DISCONNECT traffic is visible in the add-on log alongside the existing nginx access log. Closes a diagnostic gap discovered while investigating the blank phone tile.
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/discovery"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/ghome"
+	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/hls"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/oauth"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/streams"
 	wrtc "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/webrtc"
@@ -35,6 +36,7 @@ type Server struct {
 	Fulfill  *ghome.Handler
 	Registry *streams.Registry
 	WebRTC   *wrtc.Factory
+	HLS      *hls.Server
 
 	// Discover, when non-nil, enables GET /admin/discover.
 	Discover DiscoverFunc
@@ -47,6 +49,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/oauth/token", s.OAuth.Token)
 	mux.Handle("/smarthome", s.authMiddleware(s.Fulfill))
 	mux.HandleFunc("/webrtc/signal", s.signalHandler)
+	if s.HLS != nil {
+		mux.HandleFunc("/hls/", s.hlsHandler)
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -101,6 +106,21 @@ func (s *Server) SignalingURL(camID string) (string, error) {
 	exp := time.Now().Add(2 * time.Minute).Unix()
 	tok := s.signToken(camID, exp)
 	return fmt.Sprintf("%s/webrtc/signal?cam=%s&exp=%d&t=%s",
+		strings.TrimRight(s.PublicBaseURL, "/"), camID, exp, tok), nil
+}
+
+// HLSURL builds a signed, longer-lived URL pointing at the camera's HLS
+// playlist. The expiry is generous (1 h) because mobile players keep a
+// playlist URL around across reloads and a too-short window forces the
+// Home app to refetch the EXECUTE response mid-playback.
+//
+// The token lives in the URL path (not the query string) so the relative
+// segment URIs gohlslib emits inside the playlist automatically inherit
+// it without any rewriting.
+func (s *Server) HLSURL(camID string) (string, error) {
+	exp := time.Now().Add(1 * time.Hour).Unix()
+	tok := s.signToken(camID, exp)
+	return fmt.Sprintf("%s/hls/%s/%d/%s/index.m3u8",
 		strings.TrimRight(s.PublicBaseURL, "/"), camID, exp, tok), nil
 }
 
@@ -238,4 +258,28 @@ func mapKeys(m map[string]any) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// hlsHandler validates the path-embedded HMAC token and forwards the
+// request to the HLS server with the token segments stripped so gohlslib
+// sees a clean "/<camID>/<rest>" path.
+//
+// Path layout: /hls/<camID>/<exp>/<sig>/<rest>
+func (s *Server) hlsHandler(w http.ResponseWriter, r *http.Request) {
+	trimmed := strings.TrimPrefix(r.URL.Path, "/hls/")
+	parts := strings.SplitN(trimmed, "/", 4)
+	if len(parts) < 4 {
+		http.Error(w, "bad hls path", http.StatusBadRequest)
+		return
+	}
+	camID, expStr, sig, rest := parts[0], parts[1], parts[2], parts[3]
+	if err := s.verifyToken(camID, expStr, sig); err != nil {
+		http.Error(w, "unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+	r2 := *r
+	u := *r.URL
+	u.Path = "/" + camID + "/" + rest
+	r2.URL = &u
+	s.HLS.ServeHTTP(w, &r2)
 }
