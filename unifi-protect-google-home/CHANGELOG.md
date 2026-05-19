@@ -1,3 +1,7 @@
+## 0.3.18
+
+- **Startup HomeGraph RequestSync.** After 0.3.17 added HLS to `cameraStreamSupportedProtocols`, existing users saw no change in the phone Home app because Google's cached SYNC still listed only `webrtc` — and the reconciler only triggers RequestSync on camera add/remove, never on pure attribute changes. The bridge now fires one RequestSync per process startup (idempotent, well below HomeGraph's per-day budget) so capability changes propagate without requiring `"Hey Google, sync my devices"`. Look for `homegraph requestSync (startup): ok` in the log.
+
 ## 0.3.17
 
 - **HLS support for the Google Home phone app.** Tapping a camera tile in the phone Home app previously returned `functionNotSupported` (as of 0.3.15) because the only protocol we advertised — WebRTC — is not in the phone's `SupportedStreamProtocols` list. The bridge now ships an embedded RTSP→HLS muxer (built on `gohlslib/v2`) and a new HMAC-signed route `/hls/<camID>/<exp>/<sig>/index.m3u8`. SYNC declares `cameraStreamSupportedProtocols: ["webrtc","hls"]` and EXECUTE branches per Scrypted's rule:

@@ -165,6 +165,24 @@ func run() int {
 	}
 	log.Printf("loaded %d camera(s)", len(src.snapshot()))
 
+	// Force a HomeGraph SYNC on every startup. The membership-diff path in
+	// the reconciler only fires RequestSync when cameras are added/removed,
+	// so a capability change (e.g. adding HLS to cameraStreamSupportedProtocols
+	// in 0.3.17) would otherwise never propagate until the next time a
+	// camera comes or goes. A single RequestSync per process start is
+	// cheap and idempotent.
+	if hg != nil {
+		go func() {
+			syncCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if err := hg.RequestSync(syncCtx, cfg.Bridge.AgentUserID); err != nil {
+				log.Printf("homegraph requestSync (startup): %v", err)
+			} else {
+				log.Printf("homegraph requestSync (startup): ok")
+			}
+		}()
+	}
+
 	go rec.poll(ctx)
 
 	oauthSrv := oauth.New(cfg.Google.OAuthClientID, cfg.Google.OAuthClientSecret, cfg.Bridge.ConsentPassword, []byte(cfg.Bridge.StreamTokenSecret))
