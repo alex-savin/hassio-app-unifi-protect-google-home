@@ -93,6 +93,7 @@ func (h *Handler) handle(req intentRequest) intentResponse {
 func (h *Handler) sync(reqID string) intentResponse {
 	cams := h.Source.ListCameras()
 	devices := make([]device, 0, len(cams))
+	protocols := []string{"webrtc", "hls"}
 	for _, c := range cams {
 		devType := "action.devices.types.CAMERA"
 		traits := []string{"action.devices.traits.CameraStream"}
@@ -108,7 +109,7 @@ func (h *Handler) sync(reqID string) intentResponse {
 			WillReportState:              true,
 			NotificationSupportedByAgent: true,
 			Attributes: map[string]any{
-				"cameraStreamSupportedProtocols": []string{"webrtc", "hls"},
+				"cameraStreamSupportedProtocols": protocols,
 				"cameraStreamNeedAuthToken":      false,
 			},
 			DeviceInfo: &deviceInfo{
@@ -117,6 +118,7 @@ func (h *Handler) sync(reqID string) intentResponse {
 			},
 		})
 	}
+	log.Printf("ghome sync: returning %d device(s) cameraStreamSupportedProtocols=%v", len(devices), protocols)
 	return intentResponse{
 		RequestID: reqID,
 		Payload: map[string]any{

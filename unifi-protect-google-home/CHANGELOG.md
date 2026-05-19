@@ -1,3 +1,7 @@
+## 0.3.19
+
+- **SYNC response logging.** Added `ghome sync: returning N device(s) cameraStreamSupportedProtocols=[...]` so we can confirm what attribute set the bridge actually advertises to Google on each SYNC. Without this it's impossible to tell from the logs whether HLS made it into the response or the running binary is still pre-0.3.17.
+
 ## 0.3.18
 
 - **Startup HomeGraph RequestSync.** After 0.3.17 added HLS to `cameraStreamSupportedProtocols`, existing users saw no change in the phone Home app because Google's cached SYNC still listed only `webrtc` — and the reconciler only triggers RequestSync on camera add/remove, never on pure attribute changes. The bridge now fires one RequestSync per process startup (idempotent, well below HomeGraph's per-day budget) so capability changes propagate without requiring `"Hey Google, sync my devices"`. Look for `homegraph requestSync (startup): ok` in the log.
