@@ -1,4 +1,0 @@
-{"conclusion":"success","name":"Initialize build matrix","status":"completed"}
-{"conclusion":"skipped","name":"Bump version and create release","status":"completed"}
-{"conclusion":"skipped","name":"Build \u0026 push ${{ matrix.arch }} image","status":"completed"}
-{"conclusion":"skipped","name":"Publish multi-arch manifest","status":"completed"}

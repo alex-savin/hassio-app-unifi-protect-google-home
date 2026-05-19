@@ -1,3 +1,13 @@
+## 0.3.23
+
+- **Re-advertise HLS alongside `progressive_mp4` and `webrtc`.** The Android Home app on phones does not decode `progressive_mp4` or `webrtc` natively for cloud-to-cloud camera integrations — it only renders **HLS**. v0.3.20 dropped HLS to match Scrypted, which explained why production logs after v0.3.20–v0.3.22 showed Google running `SYNC` and `QUERY` but never `EXECUTE / GetCameraStream` when the user tapped a tile in the phone Home app: the phone's `SupportedStreamProtocols` had no overlap with `["progressive_mp4","webrtc"]`, so Home silently fell back to "preview only". This is exactly how Arlo's first-party Google Home integration works on the phone (it advertises HLS too). SYNC now emits `cameraStreamSupportedProtocols: ["hls", "progressive_mp4", "webrtc"]`.
+- **EXECUTE protocol selection** updated to a clearer priority ladder:
+  1. surface lists only `webrtc` → WebRTC (Nest Hub Max),
+  2. surface lists `hls` → HLS (phone Home app),
+  3. surface lists `progressive_mp4` (or sends an empty list) → progressive MP4 (Chromecast / non-Max Nest Hub Cast playback),
+  4. otherwise `functionNotSupported`.
+  The HLS branch returns `cameraStreamAccessUrl` pointing at the same path-tokenized `/hls/<camID>/<exp>/<sig>/index.m3u8` endpoint the bridge has shipped since 0.3.17, plus a placeholder `cameraStreamAuthToken` to honour `cameraStreamNeedAuthToken: true`.
+
 ## 0.3.22
 
 - **Gate startup HomeGraph `RequestSync` on a device-list fingerprint.** Every add-on restart was unconditionally firing `RequestSync` to HomeGraph, which has a small per-project rate limit (a handful of calls per minute, a few hundred per day). Restart loops — common during the v0.3.17→v0.3.21 debugging — quickly burnt that quota and earned `429 RESOURCE_EXHAUSTED`, which appeared verbatim in production logs. The bridge now computes a SHA-256 fingerprint over the exact SYNC device list (IDs, names, manufacturer/model, traits, advertised `cameraStreamSupportedProtocols`, `cameraStreamNeedAuthToken`, doorbell type) and persists it next to `options.json` (typically `/data/sync_state.json`). On startup it only fires `RequestSync` when the fingerprint changed; otherwise it logs `homegraph requestSync (startup): skipped, fingerprint unchanged (<hash>)` and stays silent. The reconciler still fires `RequestSync` live whenever cameras are added or removed.

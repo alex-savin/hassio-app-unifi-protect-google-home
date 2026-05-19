@@ -47,6 +47,11 @@ type Source interface {
 	// SignalingURL returns an absolute URL Google will POST the SDP offer to.
 	// Implementations should embed a short-lived signed token.
 	SignalingURL(camID string) (url string, err error)
+	// HLSURL returns the camera's HLS playlist URL. The Android Home app on
+	// phones renders camera tiles only via HLS, so this is the protocol the
+	// phone surface will pick. The URL embeds a path-scoped HMAC token, so
+	// no Authorization header is required.
+	HLSURL(camID string) (url string, err error)
 	// ProgressiveMP4URL returns the camera's progressive_mp4 stream URL and
 	// the bearer token Google should send as the Authorization header for
 	// `cameraStreamAuthToken`.
@@ -97,10 +102,13 @@ func (h *Handler) handle(req intentRequest) intentResponse {
 func (h *Handler) sync(reqID string) intentResponse {
 	cams := h.Source.ListCameras()
 	devices := make([]device, 0, len(cams))
-	// Match Scrypted's google-home plugin exactly: phones do not consume
-	// hls/dash from cloud-to-cloud actions in practice, only progressive_mp4
-	// and webrtc. Hub Max picks webrtc; everything else picks progressive_mp4.
-	protocols := []string{"progressive_mp4", "webrtc"}
+	// Advertise the three protocols Google's surfaces actually consume:
+	//   - hls           : Android phone Home app live-view
+	//   - progressive_mp4: Chromecast / Nest Hub (non-Max) Cast playback
+	//   - webrtc        : Nest Hub Max
+	// Google picks one per surface based on which protocols that surface
+	// supports; the bridge implements all three.
+	protocols := []string{"hls", "progressive_mp4", "webrtc"}
 	for _, c := range cams {
 		devType := "action.devices.types.CAMERA"
 		traits := []string{"action.devices.traits.CameraStream"}
@@ -203,14 +211,18 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 			}
 			log.Printf("ghome execute: GetCameraStream devices=%v SupportedStreamProtocols=%v", ids, supported)
 
-			// Protocol selection rule (matches Scrypted's google-home plugin):
-			// the only client that exclusively lists "webrtc" is Cast/Hub Max,
-			// and it's also the only client that decodes the WebRTC stream a
-			// Smart Home action delivers. Every other surface (phone Home app,
-			// web view) lists progressive_mp4 (and sometimes hls/dash/smooth_stream
-			// which we do not implement) — those get progressive_mp4.
+			// Protocol selection rules, in priority order:
+			//   1. The supported list contains only "webrtc"     -> webrtc
+			//      (this is exclusively Nest Hub Max).
+			//   2. The supported list contains "hls"             -> hls
+			//      (Android phone Home app — the only protocol it actually
+			//      renders for cloud-to-cloud cameras).
+			//   3. The supported list contains "progressive_mp4" -> mp4
+			//      (Chromecast / Nest Hub non-Max Cast receivers).
+			// Otherwise we return functionNotSupported.
 			useWebRTC := len(supported) == 1 && containsFold(supported, "webrtc")
-			useMP4 := !useWebRTC && (len(supported) == 0 || containsFold(supported, "progressive_mp4"))
+			useHLS := !useWebRTC && containsFold(supported, "hls")
+			useMP4 := !useWebRTC && !useHLS && (len(supported) == 0 || containsFold(supported, "progressive_mp4"))
 
 			for _, d := range cmd.Devices {
 				switch {
@@ -228,6 +240,24 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 							"cameraStreamProtocol":     "webrtc",
 							"cameraStreamSignalingUrl": url,
 							"cameraStreamAuthToken":    "",
+						},
+					})
+				case useHLS:
+					url, err := h.Source.HLSURL(d.ID)
+					if err != nil {
+						commands = append(commands, deviceErr(d.ID, "deviceOffline"))
+						continue
+					}
+					commands = append(commands, map[string]any{
+						"ids":    []string{d.ID},
+						"status": "SUCCESS",
+						"states": map[string]any{
+							"online":                true,
+							"cameraStreamProtocol":  "hls",
+							"cameraStreamAccessUrl": url,
+							// Path tokens self-authenticate; we still set a
+							// placeholder since cameraStreamNeedAuthToken=true.
+							"cameraStreamAuthToken": "hls",
 						},
 					})
 				case useMP4:
@@ -248,7 +278,7 @@ func (h *Handler) execute(reqID string, payload json.RawMessage) intentResponse 
 						},
 					})
 				default:
-					log.Printf("ghome execute: camera %s requested protocols %v — no overlap with [webrtc,progressive_mp4], returning functionNotSupported", d.ID, supported)
+					log.Printf("ghome execute: camera %s requested protocols %v — no overlap with [hls,webrtc,progressive_mp4], returning functionNotSupported", d.ID, supported)
 					commands = append(commands, deviceErr(d.ID, "functionNotSupported"))
 				}
 			}
