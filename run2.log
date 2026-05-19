@@ -1,0 +1,111 @@
+Go Lint	Run golangci-lint	﻿2026-05-19T00:23:17.7763253Z ##[group]Run golangci/golangci-lint-action@v9
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7763576Z with:
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7763763Z   version: latest
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7763956Z   install-mode: binary
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7764155Z   install-only: false
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7764508Z   github-token: ***
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7764707Z   verify: true
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7764899Z   only-new-issues: false
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7765108Z   skip-cache: false
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7765302Z   skip-save-cache: false
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7765520Z   cache-invalidation-interval: 7
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7765777Z   problem-matchers: false
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7765985Z env:
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7766154Z   GOTOOLCHAIN: local
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.7766341Z ##[endgroup]
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.9269200Z ##[group]Restore cache
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.9274313Z Checking for go.mod: go.mod
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.9280068Z (node:2278) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+Go Lint	Run golangci-lint	2026-05-19T00:23:17.9280931Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.1825503Z Cache hit for: golangci-lint.cache-Linux-2941-a61e3c33a381185d49ae6ca5fab3afdd33846d23
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.1943069Z (node:2278) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.7684573Z Received 124777 of 124777 (100.0%), 0.4 MBs/sec
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.7685693Z Cache Size: ~0 MB (124777 B)
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.7715246Z [command]/usr/bin/tar -xf /home/runner/work/_temp/bbd942e8-eea1-446c-9ea1-e86e495e8837/cache.tzst -P -C /home/runner/work/hassio-app-unifi-protect-google-home/hassio-app-unifi-protect-google-home --use-compress-program unzstd
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.8173867Z Cache restored successfully
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.8179784Z Restored cache for golangci-lint from key 'golangci-lint.cache-Linux-2941-a61e3c33a381185d49ae6ca5fab3afdd33846d23' in 890ms
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.8181248Z ##[endgroup]
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.8181920Z ##[group]Install
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.8183741Z Finding needed golangci-lint version...
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.8342886Z Requested golangci-lint 'latest', using 'v2.12.2', calculation took 16ms
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.8343403Z Installation mode: binary
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.8343993Z Installing golangci-lint binary v2.12.2...
+Go Lint	Run golangci-lint	2026-05-19T00:23:18.8345424Z Downloading binary https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-linux-amd64.tar.gz ...
+Go Lint	Run golangci-lint	2026-05-19T00:23:19.0127399Z [command]/usr/bin/tar xz --overwrite --warning=no-unknown-keyword --overwrite -C /home/runner -f /home/runner/work/_temp/afd5f27f-a702-4361-b22a-4ded91550f56
+Go Lint	Run golangci-lint	2026-05-19T00:23:19.2715077Z Installed golangci-lint into /home/runner/golangci-lint-2.12.2-linux-amd64/golangci-lint in 437ms
+Go Lint	Run golangci-lint	2026-05-19T00:23:19.2720191Z ##[endgroup]
+Go Lint	Run golangci-lint	2026-05-19T00:23:19.2724379Z ##[group]run golangci-lint
+Go Lint	Run golangci-lint	2026-05-19T00:23:19.2729483Z Running [/home/runner/golangci-lint-2.12.2-linux-amd64/golangci-lint config path] in [/home/runner/work/hassio-app-unifi-protect-google-home/hassio-app-unifi-protect-google-home] ...
+Go Lint	Run golangci-lint	2026-05-19T00:23:19.3512353Z Running [/home/runner/golangci-lint-2.12.2-linux-amd64/golangci-lint config verify] in [/home/runner/work/hassio-app-unifi-protect-google-home/hassio-app-unifi-protect-google-home] ...
+Go Lint	Run golangci-lint	2026-05-19T00:23:19.4438763Z Running [/home/runner/golangci-lint-2.12.2-linux-amd64/golangci-lint run] in [/home/runner/work/hassio-app-unifi-protect-google-home/hassio-app-unifi-protect-google-home] ...
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3051062Z ##[error]internal/streams/registry.go:16:2: could not import github.com/pion/webrtc/v4 (internal/streams/registry.go:16:2: missing go.sum entry for module providing package github.com/pion/webrtc/v4 (imported by github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp); to add:
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3059757Z 	go get github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp) (typecheck)
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3060642Z 	"github.com/pion/webrtc/v4"
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3060890Z 	^
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3069562Z ##[error]internal/streams/registry.go:26:33: undefined: webrtc (typecheck)
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3070863Z 	Start(ctx context.Context) ([]*webrtc.TrackLocalStaticRTP, error)
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3071513Z 	                               ^
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3072609Z ##[error]internal/streams/registry.go:36:13: undefined: webrtc (typecheck)
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3073557Z 	tracks  []*webrtc.TrackLocalStaticRTP
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3073896Z 	           ^
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3074511Z ##[error]internal/streams/registry.go:49:51: undefined: webrtc (typecheck)
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3075686Z func (s *Stream) Acquire(ctx context.Context) ([]*webrtc.TrackLocalStaticRTP, func(), error) {
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3076529Z                                                   ^
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3076823Z 4 issues:
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3077028Z * typecheck: 4
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3077159Z 
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3086773Z ##[error]issues found
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3087698Z Ran golangci-lint in 859ms
+Go Lint	Run golangci-lint	2026-05-19T00:23:20.3088183Z ##[endgroup]
+Go Tests	Run Go tests	﻿2026-05-19T00:23:15.0633025Z ##[group]Run go test -v -race -coverprofile=coverage.out ./...
+Go Tests	Run Go tests	2026-05-19T00:23:15.0633577Z ^[[36;1mgo test -v -race -coverprofile=coverage.out ./...^[[0m
+Go Tests	Run Go tests	2026-05-19T00:23:15.0673917Z shell: /usr/bin/bash -e {0}
+Go Tests	Run Go tests	2026-05-19T00:23:15.0674192Z env:
+Go Tests	Run Go tests	2026-05-19T00:23:15.0674366Z   GOTOOLCHAIN: local
+Go Tests	Run Go tests	2026-05-19T00:23:15.0674577Z ##[endgroup]
+Go Tests	Run Go tests	2026-05-19T00:23:15.1634657Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/api
+Go Tests	Run Go tests	2026-05-19T00:23:15.1635472Z FAIL	github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/api [setup failed]
+Go Tests	Run Go tests	2026-05-19T00:23:15.1666679Z ##[error]internal/api/server.go:16:2: github.com/bluenviron/gortsplib/v4@v4.16.2: missing go.sum entry for go.mod file; to add it:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1679682Z 	go mod download github.com/bluenviron/gortsplib/v4
+Go Tests	Run Go tests	2026-05-19T00:23:15.1680576Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/api
+Go Tests	Run Go tests	2026-05-19T00:23:15.1682752Z ##[error]internal/api/server.go:17:2: github.com/bluenviron/gortsplib/v4@v4.16.2: missing go.sum entry for go.mod file; to add it:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1684773Z 	go mod download github.com/bluenviron/gortsplib/v4
+Go Tests	Run Go tests	2026-05-19T00:23:15.1685589Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/api
+Go Tests	Run Go tests	2026-05-19T00:23:15.1689113Z ##[error]internal/streams/registry.go:16:2: missing go.sum entry for module providing package github.com/pion/webrtc/v4 (imported by github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp); to add:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1692106Z 	go get github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1693119Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/api
+Go Tests	Run Go tests	2026-05-19T00:23:15.1695046Z ##[error]internal/api/server.go:19:2: github.com/bluenviron/gortsplib/v4@v4.16.2: missing go.sum entry for go.mod file; to add it:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1703785Z 	go mod download github.com/bluenviron/gortsplib/v4
+Go Tests	Run Go tests	2026-05-19T00:23:15.1704696Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1708983Z ##[error]internal/rtsp/client.go:16:2: missing go.sum entry for module providing package github.com/bluenviron/gortsplib/v4 (imported by github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp); to add:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1711917Z 	go get github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1712969Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1716409Z ##[error]internal/rtsp/client.go:17:2: missing go.sum entry for module providing package github.com/bluenviron/gortsplib/v4/pkg/base (imported by github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp); to add:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1720866Z 	go get github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1722539Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1726255Z ##[error]internal/rtsp/client.go:18:2: missing go.sum entry for module providing package github.com/bluenviron/gortsplib/v4/pkg/description (imported by github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp); to add:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1729537Z 	go get github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1730533Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1734126Z ##[error]internal/rtsp/client.go:19:2: missing go.sum entry for module providing package github.com/bluenviron/gortsplib/v4/pkg/format (imported by github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp); to add:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1737903Z 	go get github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1739540Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1743293Z ##[error]internal/rtsp/client.go:20:2: missing go.sum entry for module providing package github.com/pion/rtp (imported by github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp); to add:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1747001Z 	go get github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1748174Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1751376Z ##[error]internal/streams/registry.go:16:2: missing go.sum entry for module providing package github.com/pion/webrtc/v4 (imported by github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp); to add:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1754072Z 	go get github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1755068Z # github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/streams
+Go Tests	Run Go tests	2026-05-19T00:23:15.1758443Z ##[error]internal/streams/registry.go:16:2: missing go.sum entry for module providing package github.com/pion/webrtc/v4 (imported by github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp); to add:
+Go Tests	Run Go tests	2026-05-19T00:23:15.1761229Z 	go get github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp
+Go Tests	Run Go tests	2026-05-19T00:23:15.1762329Z FAIL	github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp [setup failed]
+Go Tests	Run Go tests	2026-05-19T00:23:15.1763724Z FAIL	github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/streams [setup failed]
+Go Tests	Run Go tests	2026-05-19T00:23:23.9329127Z 	github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/config		coverage: 0.0% of statements
+Go Tests	Run Go tests	2026-05-19T00:23:23.9330405Z FAIL
+Go Tests	Run Go tests	2026-05-19T00:23:23.9507437Z ##[error]Process completed with exit code 1.
+Lint App	Run Home Assistant App Lint	﻿2026-05-19T00:23:12.1154928Z ##[group]Run frenck/action-addon-linter@v2
+Lint App	Run Home Assistant App Lint	2026-05-19T00:23:12.1155265Z with:
+Lint App	Run Home Assistant App Lint	2026-05-19T00:23:12.1155439Z   path: .
+Lint App	Run Home Assistant App Lint	2026-05-19T00:23:12.1155619Z   community: false
+Lint App	Run Home Assistant App Lint	2026-05-19T00:23:12.1155806Z ##[endgroup]
+Lint App	Run Home Assistant App Lint	2026-05-19T00:23:12.1251560Z ##[command]/usr/bin/docker run --name d1f9fa22f73b0415285c8649d4969acb7_5905b1 --label 90809d --workdir /github/workspace --rm -e "INPUT_PATH" -e "INPUT_COMMUNITY" -e "HOME" -e "GITHUB_JOB" -e "GITHUB_REF" -e "GITHUB_SHA" -e "GITHUB_REPOSITORY" -e "GITHUB_REPOSITORY_OWNER" -e "GITHUB_REPOSITORY_OWNER_ID" -e "GITHUB_RUN_ID" -e "GITHUB_RUN_NUMBER" -e "GITHUB_RETENTION_DAYS" -e "GITHUB_RUN_ATTEMPT" -e "GITHUB_ACTOR_ID" -e "GITHUB_ACTOR" -e "GITHUB_WORKFLOW" -e "GITHUB_HEAD_REF" -e "GITHUB_BASE_REF" -e "GITHUB_EVENT_NAME" -e "GITHUB_SERVER_URL" -e "GITHUB_API_URL" -e "GITHUB_GRAPHQL_URL" -e "GITHUB_REF_NAME" -e "GITHUB_REF_PROTECTED" -e "GITHUB_REF_TYPE" -e "GITHUB_WORKFLOW_REF" -e "GITHUB_WORKFLOW_SHA" -e "GITHUB_REPOSITORY_ID" -e "GITHUB_TRIGGERING_ACTOR" -e "GITHUB_WORKSPACE" -e "GITHUB_ACTION" -e "GITHUB_EVENT_PATH" -e "GITHUB_ACTION_REPOSITORY" -e "GITHUB_ACTION_REF" -e "GITHUB_PATH" -e "GITHUB_ENV" -e "GITHUB_STEP_SUMMARY" -e "GITHUB_STATE" -e "GITHUB_OUTPUT" -e "RUNNER_OS" -e "RUNNER_ARCH" -e "RUNNER_NAME" -e "RUNNER_ENVIRONMENT" -e "RUNNER_TOOL_CACHE" -e "RUNNER_TEMP" -e "RUNNER_WORKSPACE" -e "ACTIONS_RUNTIME_URL" -e "ACTIONS_RUNTIME_TOKEN" -e "ACTIONS_CACHE_URL" -e "ACTIONS_RESULTS_URL" -e "ACTIONS_ORCHESTRATION_ID" -e GITHUB_ACTIONS=true -e CI=true -v "/var/run/docker.sock":"/var/run/docker.sock" -v "/home/runner/work/_temp":"/github/runner_temp" -v "/home/runner/work/_temp/_github_home":"/github/home" -v "/home/runner/work/_temp/_github_workflow":"/github/workflow" -v "/home/runner/work/_temp/_runner_file_commands":"/github/file_commands" -v "/home/runner/work/hassio-app-unifi-protect-google-home/hassio-app-unifi-protect-google-home":"/github/workspace" 90809d:1f9fa22f73b0415285c8649d4969acb7
+Lint App	Run Home Assistant App Lint	2026-05-19T00:23:12.5332953Z ##[error]'boot' should be removed, it uses a default value

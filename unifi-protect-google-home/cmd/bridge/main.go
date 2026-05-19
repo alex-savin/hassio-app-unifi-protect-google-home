@@ -29,7 +29,7 @@ import (
 	wrtc "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/webrtc"
 )
 
-const bootstrapInterval = 60 * time.Second
+const bootstrapInterval = 10 * time.Second
 
 // slogWriter routes stdlib `log` output through slog so existing log.Printf
 // call sites are subject to the configured level filter. Messages are emitted
@@ -305,6 +305,13 @@ func (r *reconciler) watchEvents(ctx context.Context, fire func()) {
 			if ev.ModelKey != "camera" {
 				continue
 			}
+			if ev.Action == "update" || ev.Action == "add" {
+				keys := make([]string, 0, len(ev.Fields))
+				for k := range ev.Fields {
+					keys = append(keys, k)
+				}
+				log.Printf("protect ws: camera %s action=%s fields=%v", ev.ID, ev.Action, keys)
+			}
 			// Detect doorbell ring events. Protect signals these as an
 			// update to the camera's `lastRing` field (an epoch-ms
 			// timestamp). Push a Google Home ObjectDetection
@@ -313,20 +320,26 @@ func (r *reconciler) watchEvents(ctx context.Context, fire func()) {
 				if _, ok := ev.Fields["lastRing"]; ok {
 					r.handleRing(ev.ID)
 				}
-				if raw, ok := ev.Fields["state"]; ok {
-					var s string
-					if err := json.Unmarshal(raw, &s); err == nil {
-						r.handleStateChange(ev.ID, strings.EqualFold(s, "CONNECTED"))
-					}
+			}
+			// Connectivity transitions can show up under several field
+			// names depending on Protect firmware: `state` ("CONNECTED"
+			// / "DISCONNECTED"), `isConnected` (bool), or come in with
+			// an "add" action when a camera re-adopts after a longer
+			// outage. Handle them all.
+			if ev.Action == "update" || ev.Action == "add" {
+				if online, ok := decodeOnline(ev.Fields); ok {
+					r.handleStateChange(ev.ID, online)
 				}
 			}
 			// add/remove always triggers a refresh; for "update" only react if
-			// fields we care about changed (state / name / channels).
+			// fields we care about changed (state / name / channels / isConnected).
 			if ev.Action == "update" {
 				if _, ok := ev.Fields["state"]; !ok {
-					if _, ok := ev.Fields["name"]; !ok {
-						if _, ok := ev.Fields["channels"]; !ok {
-							continue
+					if _, ok := ev.Fields["isConnected"]; !ok {
+						if _, ok := ev.Fields["name"]; !ok {
+							if _, ok := ev.Fields["channels"]; !ok {
+								continue
+							}
 						}
 					}
 				}
@@ -430,6 +443,26 @@ func (r *reconciler) refresh(ctx context.Context) (string, error) {
 	}
 	r.src.setLastUpdateID(lastUpdateID)
 	return lastUpdateID, nil
+}
+
+// decodeOnline extracts the online flag from a Protect WS update payload.
+// It accepts either `state` (string "CONNECTED"/"DISCONNECTED"/...) or
+// `isConnected` (bool). Returns (online, true) when the payload carries a
+// connectivity signal and (false, false) otherwise.
+func decodeOnline(fields map[string]json.RawMessage) (bool, bool) {
+	if raw, ok := fields["state"]; ok {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			return strings.EqualFold(s, "CONNECTED"), true
+		}
+	}
+	if raw, ok := fields["isConnected"]; ok {
+		var b bool
+		if err := json.Unmarshal(raw, &b); err == nil {
+			return b, true
+		}
+	}
+	return false, false
 }
 
 // handleStateChange propagates a camera online/offline transition observed

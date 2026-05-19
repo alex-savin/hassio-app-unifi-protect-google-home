@@ -1,3 +1,9 @@
+## 0.3.13
+
+- **Camera “back online” detection hardened.** The Test Suite's OnlineOffline “make it online” step was timing out at ~40s because Protect doesn't always emit a `state` field on reconnect — some firmwares send `isConnected: true` or re-emit the camera under an `"add"` action instead of `"update"`. The WS handler now decodes online state via a `decodeOnline()` helper that accepts both `state` (`"CONNECTED"`/`"DISCONNECTED"`) and `isConnected` (bool), and reacts to both `"update"` and `"add"` actions. Also widened the field-filter so `isConnected`-only updates still trigger a refresh.
+- **Safety-net bootstrap loop shortened from 60s to 10s** so the fallback path converges well within the Test Suite's window even when the WS misses an event entirely.
+- **WS event logging.** Every camera-scoped WS frame now logs `protect ws: camera <id> action=<add|update> fields=[...]`, making it possible to diagnose which field Protect actually toggles on your firmware if any future regression appears.
+
 ## 0.3.12
 
 - **Immediate online/offline propagation.** When the UniFi Protect updates WebSocket emits a camera `state` change, the bridge now decodes it directly from the WS frame and pushes a `ReportState({online})` to HomeGraph synchronously — no longer waiting for the debounced bootstrap re-fetch. The in-memory snapshot is also updated in place so subsequent `QUERY` intents see the new value within milliseconds. Fixes Google Home Test Suite “OnlineOffline” failing to observe the device going offline.

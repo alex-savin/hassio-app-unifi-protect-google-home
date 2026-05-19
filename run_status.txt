@@ -1,0 +1,15 @@
+
+* main CI · 26068582276
+Triggered via push less than a minute ago
+
+JOBS
+✓ Hadolint (Dockerfile) in 8s (ID 76644766885)
+✓ YAML Lint in 11s (ID 76644766887)
+✓ Lint add-on in 13s (ID 76644766893)
+✓ Go Lint in 21s (ID 76644766903)
+✓ ShellCheck in 5s (ID 76644766916)
+✓ Lint repository.yaml in 6s (ID 76644766924)
+* Go Tests (ID 76644766927)
+
+For more information about a job, try: gh run view --job=<job-id>
+View this run on GitHub: https://github.com/alex-savin/hassio-app-unifi-protect-google-home/actions/runs/26068582276

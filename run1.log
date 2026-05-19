@@ -1,0 +1,470 @@
+Build amd64	Build and push app	﻿2026-05-19T00:23:12.1034147Z ##[group]Run home-assistant/builder@2026.03.2
+Build amd64	Build and push app	2026-05-19T00:23:12.1035441Z with:
+Build amd64	Build and push app	2026-05-19T00:23:12.1037144Z   args: --amd64 \
+Build amd64	Build and push app	--target . \
+Build amd64	Build and push app	--version "0.3.12" \
+Build amd64	Build and push app	--docker-hub ghcr.io/alex-savin \
+Build amd64	Build and push app	--no-latest \
+Build amd64	Build and push app	--addon
+Build amd64	Build and push app	
+Build amd64	Build and push app	2026-05-19T00:23:12.1039725Z   pull: true
+Build amd64	Build and push app	2026-05-19T00:23:12.1040772Z   image: amd64
+Build amd64	Build and push app	2026-05-19T00:23:12.1041950Z env:
+Build amd64	Build and push app	2026-05-19T00:23:12.1042738Z   REGISTRY: ghcr.io
+Build amd64	Build and push app	2026-05-19T00:23:12.1043669Z ##[endgroup]
+Build amd64	Build and push app	2026-05-19T00:23:12.1163954Z ##[group]Run echo "::warning::The home-assistant/builder action is deprecated and no longer maintained. Please check https://github.com/home-assistant/builder and migrate the workflow to the new reusable actions."
+Build amd64	Build and push app	2026-05-19T00:23:12.1169383Z ^[[36;1mecho "::warning::The home-assistant/builder action is deprecated and no longer maintained. Please check https://github.com/home-assistant/builder and migrate the workflow to the new reusable actions."^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1212744Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Build amd64	Build and push app	2026-05-19T00:23:12.1214104Z env:
+Build amd64	Build and push app	2026-05-19T00:23:12.1214829Z   REGISTRY: ghcr.io
+Build amd64	Build and push app	2026-05-19T00:23:12.1215688Z ##[endgroup]
+Build amd64	Build and push app	2026-05-19T00:23:12.1320756Z ##[warning]The home-assistant/builder action is deprecated and no longer maintained. Please check https://github.com/home-assistant/builder and migrate the workflow to the new reusable actions.
+Build amd64	Build and push app	2026-05-19T00:23:12.1712992Z ##[group]Run sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22
+Build amd64	Build and push app	2026-05-19T00:23:12.1714427Z with:
+Build amd64	Build and push app	2026-05-19T00:23:12.1715130Z   cosign-release: v2.5.3
+Build amd64	Build and push app	2026-05-19T00:23:12.1715983Z   install-dir: $HOME/.cosign
+Build amd64	Build and push app	2026-05-19T00:23:12.1716849Z   use-sudo: false
+Build amd64	Build and push app	2026-05-19T00:23:12.1717576Z env:
+Build amd64	Build and push app	2026-05-19T00:23:12.1718239Z   REGISTRY: ghcr.io
+Build amd64	Build and push app	2026-05-19T00:23:12.1718989Z ##[endgroup]
+Build amd64	Build and push app	2026-05-19T00:23:12.1762287Z ##[group]Run #!/bin/bash
+Build amd64	Build and push app	2026-05-19T00:23:12.1763946Z ^[[36;1m#!/bin/bash^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1765577Z ^[[36;1m# Substitute environment variables in install-dir input^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1767081Z ^[[36;1minstall_dir=$(envsubst <<<"${input_install_dir}")^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1768234Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1768930Z ^[[36;1m# cosign install script^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1769866Z ^[[36;1mshopt -s expand_aliases^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1770786Z ^[[36;1mif [ -z "$NO_COLOR" ]; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1772157Z ^[[36;1m  alias log_info="echo -e \"\033[1;32mINFO\033[0m:\""^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1773525Z ^[[36;1m  alias log_error="echo -e \"\033[1;31mERROR\033[0m:\""^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1774677Z ^[[36;1melse^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1775491Z ^[[36;1m  alias log_info="echo \"INFO:\""^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1776680Z ^[[36;1m  alias log_error="echo \"ERROR:\""^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1777639Z ^[[36;1mfi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1778295Z ^[[36;1mset -e^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1778985Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1779657Z ^[[36;1mCURL_RETRIES=3^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1780426Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1781187Z ^[[36;1m# This function helps compare versions.^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1782788Z ^[[36;1m# Returns 0 if version1 >= version2, 1 otherwise.^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1784055Z ^[[36;1m# Usage: is_version_ge "3.0.0" "$version_num"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1785131Z ^[[36;1mis_version_ge() {^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1786192Z ^[[36;1m    [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" == "$1" ]^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1787344Z ^[[36;1m}^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1788014Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1788996Z ^[[36;1m# Check for unsupported old versions (anything below v2.0.0)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1790405Z ^[[36;1mif [[ "${input_cosign_release}" != "main" ]]; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1791923Z ^[[36;1m  # Extract version without 'v' prefix for comparison^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1793205Z ^[[36;1m  version_num="${input_cosign_release}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1794293Z ^[[36;1m  version_num="${version_num#v}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1795243Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1796021Z ^[[36;1m  # Check if version is less than v2.0.0^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1797199Z ^[[36;1m  if ! is_version_ge "2.0.0" "$version_num"; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1798872Z ^[[36;1m    log_error "cosign versions below v2.0.0 are no longer supported."^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1800433Z ^[[36;1m    log_error "Requested version: ${input_cosign_release}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1801940Z ^[[36;1m    log_error "Please use cosign v2.6.0 or later."^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1803619Z ^[[36;1m    log_error "See https://github.com/sigstore/cosign/releases for available versions."^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1805150Z ^[[36;1m    exit 1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1805900Z ^[[36;1m  fi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1806588Z ^[[36;1mfi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1807270Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1807978Z ^[[36;1mmkdir -p "${install_dir}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1808878Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1809749Z ^[[36;1mif [[ "${input_cosign_release}" == "main" ]]; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1811398Z ^[[36;1m  log_info "installing cosign via 'go install' from its main version"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1812956Z ^[[36;1m  GOBIN=$(go env GOPATH)/bin^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1814151Z ^[[36;1m  go install github.com/sigstore/cosign/v3/cmd/cosign@main^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1815522Z ^[[36;1m  ln -s "$GOBIN/cosign" "${install_dir}/cosign"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1816579Z ^[[36;1m  exit 0^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1817300Z ^[[36;1mfi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1817964Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1818643Z ^[[36;1mshaprog() {^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1819432Z ^[[36;1m  case ${runner_os} in^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1820318Z ^[[36;1m    Linux|linux)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1821202Z ^[[36;1m      sha256sum "$1" | cut -d' ' -f1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1822525Z ^[[36;1m      ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1823278Z ^[[36;1m    macOS|macos)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1824237Z ^[[36;1m      shasum -a256 "$1" | cut -d' ' -f1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1825232Z ^[[36;1m      ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1825979Z ^[[36;1m    Windows|windows)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1827687Z ^[[36;1m      powershell -command "(Get-FileHash $1 -Algorithm SHA256 | Select-Object -ExpandProperty Hash).ToLower()"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1829458Z ^[[36;1m      ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1830165Z ^[[36;1m    *)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1831024Z ^[[36;1m      log_error "unsupported OS ${runner_os}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1832219Z ^[[36;1m      exit 1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1832970Z ^[[36;1m      ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1833668Z ^[[36;1m  esac^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1834360Z ^[[36;1m}^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1835028Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1835725Z ^[[36;1mbootstrap_version='v3.0.5'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1837368Z ^[[36;1mbootstrap_linux_amd64_sha="db15cc99e6e4837daabab023742aaddc3841ce57f193d11b7c3e06c8003642b2"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1839692Z ^[[36;1mbootstrap_linux_arm_sha="4866f388e87125f1f492231dbbb347bb73b601c810595b65b2ae09eae4c8a99d"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1842105Z ^[[36;1mbootstrap_linux_arm64_sha="d098f3168ae4b3aa70b4ca78947329b953272b487727d1722cb3cb098a1a20ab"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1844619Z ^[[36;1mbootstrap_darwin_amd64_sha="e032c44d3f7c247bbb2966b41239f88ffba002497a4516358d327ad5693c386f"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1846975Z ^[[36;1mbootstrap_darwin_arm64_sha="4888c898e2901521a6bd4cf4f0383c9465588a6a46ecd2465ad34faf13f09eb7"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1849604Z ^[[36;1mbootstrap_windows_amd64_sha="44e9e44202b67ddfaaf5ea1234f5a265417960c4ae98c5b57c35bc40ba9dd714"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1851291Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1852166Z ^[[36;1mcosign_executable_name=cosign^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1853092Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1853806Z ^[[36;1mtrap "popd >/dev/null" EXIT^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1854720Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1855455Z ^[[36;1mpushd "${install_dir}" > /dev/null^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1856412Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1857101Z ^[[36;1mcase ${runner_os} in^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1857955Z ^[[36;1m  Linux|linux)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1858765Z ^[[36;1m    case ${runner_arch} in^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1859676Z ^[[36;1m      X64|amd64)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1860653Z ^[[36;1m        bootstrap_filename='cosign-linux-amd64'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1862203Z ^[[36;1m        bootstrap_sha=${bootstrap_linux_amd64_sha}^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1863523Z ^[[36;1m        desired_cosign_filename='cosign-linux-amd64'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1864828Z ^[[36;1m        ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1865564Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1866235Z ^[[36;1m      ARM|arm)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1867168Z ^[[36;1m        bootstrap_filename='cosign-linux-arm'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1868365Z ^[[36;1m        bootstrap_sha=${bootstrap_linux_arm_sha}^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1869612Z ^[[36;1m        desired_cosign_filename='cosign-linux-arm'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1870719Z ^[[36;1m        ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1871444Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1872276Z ^[[36;1m      ARM64|arm64)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1873273Z ^[[36;1m        bootstrap_filename='cosign-linux-arm64'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1874513Z ^[[36;1m        bootstrap_sha=${bootstrap_linux_arm64_sha}^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1875926Z ^[[36;1m        desired_cosign_filename='cosign-linux-arm64'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1877036Z ^[[36;1m        ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1877770Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1878420Z ^[[36;1m      *)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1879401Z ^[[36;1m        log_error "unsupported architecture ${runner_arch}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1880567Z ^[[36;1m        exit 1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1881342Z ^[[36;1m        ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1882207Z ^[[36;1m    esac^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1883144Z ^[[36;1m    ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1883839Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1884517Z ^[[36;1m  macOS|macos)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1885333Z ^[[36;1m    case ${runner_arch} in^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1886247Z ^[[36;1m      X64|amd64)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1887211Z ^[[36;1m        bootstrap_filename='cosign-darwin-amd64'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1888472Z ^[[36;1m        bootstrap_sha=${bootstrap_darwin_amd64_sha}^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1889759Z ^[[36;1m        desired_cosign_filename='cosign-darwin-amd64'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1890882Z ^[[36;1m        ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1891618Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1892431Z ^[[36;1m      ARM64|arm64)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1893439Z ^[[36;1m        bootstrap_filename='cosign-darwin-arm64'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1894707Z ^[[36;1m        bootstrap_sha=${bootstrap_darwin_arm64_sha}^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1895992Z ^[[36;1m        desired_cosign_filename='cosign-darwin-arm64'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1897108Z ^[[36;1m        ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1897838Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1898500Z ^[[36;1m      *)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1899450Z ^[[36;1m        log_error "unsupported architecture ${runner_arch}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1900634Z ^[[36;1m        exit 1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1901413Z ^[[36;1m        ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1902264Z ^[[36;1m    esac^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1903025Z ^[[36;1m    ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1903724Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1904419Z ^[[36;1m  Windows|windows)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1905289Z ^[[36;1m    case ${runner_arch} in^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1906214Z ^[[36;1m      X64|amd64)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1907226Z ^[[36;1m        bootstrap_filename='cosign-windows-amd64.exe'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1908541Z ^[[36;1m        bootstrap_sha=${bootstrap_windows_amd64_sha}^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1909932Z ^[[36;1m        desired_cosign_filename='cosign-windows-amd64.exe'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1911221Z ^[[36;1m        cosign_executable_name=cosign.exe^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1912346Z ^[[36;1m        ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1913080Z ^[[36;1m      *)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1914041Z ^[[36;1m        log_error "unsupported architecture ${runner_arch}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1915216Z ^[[36;1m        exit 1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1916014Z ^[[36;1m        ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1916744Z ^[[36;1m    esac^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1917445Z ^[[36;1m    ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1918141Z ^[[36;1m  *)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1918960Z ^[[36;1m    log_error "unsupported os ${runner_os}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1920001Z ^[[36;1m    exit 1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1920753Z ^[[36;1m    ;;^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1921444Z ^[[36;1mesac^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1922287Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1922940Z ^[[36;1mSUDO=^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1924006Z ^[[36;1mif [[ "${input_use_sudo}" == "true" ]] && command -v sudo >/dev/null; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1925459Z ^[[36;1m  SUDO=sudo^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1926199Z ^[[36;1mfi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1926861Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1927766Z ^[[36;1mexpected_bootstrap_version_digest=${bootstrap_sha}^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1930915Z ^[[36;1mlog_info "Downloading bootstrap version '${bootstrap_version}' of cosign to verify version to be installed...\n      https://github.com/sigstore/cosign/releases/download/${bootstrap_version}/${bootstrap_filename}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1935472Z ^[[36;1m$SUDO curl --retry "${CURL_RETRIES}" -fsSL "https://github.com/sigstore/cosign/releases/download/${bootstrap_version}/${bootstrap_filename}" -o "${cosign_executable_name}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1938349Z ^[[36;1mshaBootstrap=$(shaprog "${cosign_executable_name}")^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1940017Z ^[[36;1mif [[ "$shaBootstrap" != "${expected_bootstrap_version_digest}" ]]; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1941861Z ^[[36;1m  log_error "Unable to validate cosign version: '${input_cosign_release}'"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1943256Z ^[[36;1m  exit 1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1943961Z ^[[36;1mfi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1944780Z ^[[36;1m$SUDO chmod +x "${cosign_executable_name}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1945797Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1946921Z ^[[36;1m# If the bootstrap and specified `cosign` releases are the same, we're done.^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1948626Z ^[[36;1mif [[ "${input_cosign_release}" == "${bootstrap_version}" ]]; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1950717Z ^[[36;1m  log_info "bootstrap version successfully verified and matches requested version so nothing else to do"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1952606Z ^[[36;1m  exit 0^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1953365Z ^[[36;1mfi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1954044Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1954906Z ^[[36;1msemver='^v([0-9]+\.){0,2}(\*|[0-9]+)(-?r?c?)(\.[0-9]+)$'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1956207Z ^[[36;1mif [[ "${input_cosign_release}" =~ $semver ]]; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1957673Z ^[[36;1m  log_info "Custom cosign version '${input_cosign_release}' requested"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1958986Z ^[[36;1melse^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1960224Z ^[[36;1m  log_error "Unable to validate requested cosign version: '${input_cosign_release}'"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1961807Z ^[[36;1m  exit 1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1962526Z ^[[36;1mfi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1963185Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1963895Z ^[[36;1m# Download custom cosign^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1966618Z ^[[36;1mlog_info "Downloading platform-specific version '${input_cosign_release}' of cosign...\n      https://github.com/sigstore/cosign/releases/download/${input_cosign_release}/${desired_cosign_filename}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1970997Z ^[[36;1m$SUDO curl --retry "${CURL_RETRIES}" -fsSL "https://github.com/sigstore/cosign/releases/download/${input_cosign_release}/${desired_cosign_filename}" -o "cosign_${input_cosign_release}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1973958Z ^[[36;1mshaCustom=$(shaprog "cosign_${input_cosign_release}");^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1975139Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1975935Z ^[[36;1m# same hash means it is the same release^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1977082Z ^[[36;1mif [[ "$shaCustom" != "$shaBootstrap" ]]; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1979816Z ^[[36;1m  log_info "Downloading cosign public key '${input_cosign_release}' of cosign...\n    https://raw.githubusercontent.com/sigstore/cosign/${input_cosign_release}/release/release-cosign.pub"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1983916Z ^[[36;1m  RELEASE_COSIGN_PUB_KEY=https://raw.githubusercontent.com/sigstore/cosign/${input_cosign_release}/release/release-cosign.pub^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1986602Z ^[[36;1m  RELEASE_COSIGN_PUB_KEY_SHA='f4cea466e5e887a45da5031757fa1d32655d83420639dc1758749b744179f126'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1988216Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1989148Z ^[[36;1m  log_info "Verifying public key matches expected value"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1990889Z ^[[36;1m  $SUDO curl --retry "${CURL_RETRIES}" -fsSL "$RELEASE_COSIGN_PUB_KEY" -o public.key^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1992621Z ^[[36;1m  sha_fetched_key=$(shaprog public.key)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1994126Z ^[[36;1m  if [[ "$sha_fetched_key" != "$RELEASE_COSIGN_PUB_KEY_SHA" ]]; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1995814Z ^[[36;1m    log_error "Fetched public key does not match expected digest, exiting"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1997173Z ^[[36;1m    exit 1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1997908Z ^[[36;1m  fi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1998593Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.1999407Z ^[[36;1m  if is_version_ge "3.0.1" "$version_num"; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2000757Z ^[[36;1m    # we're trying to get something greater than or equal to v3.0.1^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2002474Z ^[[36;1m    keyless_signature_file=${desired_cosign_filename}.sigstore.json^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2005871Z ^[[36;1m    log_info "Downloading keyless verification bundle for platform-specific '${input_cosign_release}' of cosign...\n      https://github.com/sigstore/cosign/releases/download/${input_cosign_release}/${keyless_signature_file}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2010355Z ^[[36;1m    $SUDO curl --retry "${CURL_RETRIES}" -fsSLO "https://github.com/sigstore/cosign/releases/download/${input_cosign_release}/${keyless_signature_file}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2012674Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2013938Z ^[[36;1m    log_info "Using bootstrap cosign to verify keyless signature of desired cosign version"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2017846Z ^[[36;1m    "./${cosign_executable_name}" verify-blob --certificate-identity=keyless@projectsigstore.iam.gserviceaccount.com --certificate-oidc-issuer=https://accounts.google.com --bundle "${keyless_signature_file}" "cosign_${input_cosign_release}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2021150Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2022057Z ^[[36;1m    if is_version_ge "3.0.3" "$version_num"; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2023416Z ^[[36;1m      # we're trying to get something greater than or equal to v3.0.3^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2025015Z ^[[36;1m      kms_signature_file=${desired_cosign_filename}-kms.sigstore.json^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2028316Z ^[[36;1m      log_info "Downloading KMS verification bundle for platform-specific '${input_cosign_release}' of cosign...\n      https://github.com/sigstore/cosign/releases/download/${input_cosign_release}/${kms_signature_file}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2032581Z ^[[36;1m      $SUDO curl --retry "${CURL_RETRIES}" -fsSLO "https://github.com/sigstore/cosign/releases/download/${input_cosign_release}/${kms_signature_file}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2034738Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2035927Z ^[[36;1m      log_info "Using bootstrap cosign to verify signature of desired cosign version"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2038341Z ^[[36;1m      "./${cosign_executable_name}" verify-blob --key public.key --bundle "${kms_signature_file}" "cosign_${input_cosign_release}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2040216Z ^[[36;1m    fi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2040895Z ^[[36;1m  else^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2041892Z ^[[36;1m    signature_file=${desired_cosign_filename}.sig^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2044863Z ^[[36;1m    log_info "Downloading detached signature for platform-specific '${input_cosign_release}' of cosign...\n      https://github.com/sigstore/cosign/releases/download/${input_cosign_release}/${signature_file}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2048858Z ^[[36;1m    $SUDO curl --retry "${CURL_RETRIES}" -fsSLO "https://github.com/sigstore/cosign/releases/download/${input_cosign_release}/${signature_file}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2050970Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2052235Z ^[[36;1m    log_info "Using bootstrap cosign to verify signature of desired cosign version"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2054641Z ^[[36;1m    "./${cosign_executable_name}" verify-blob --key public.key --signature "${signature_file}" "cosign_${input_cosign_release}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2056508Z ^[[36;1m  fi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2057186Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2057930Z ^[[36;1m  $SUDO rm "${cosign_executable_name}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2059290Z ^[[36;1m  $SUDO mv "cosign_${input_cosign_release}" "${cosign_executable_name}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2060708Z ^[[36;1m  $SUDO chmod +x "${cosign_executable_name}"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2061914Z ^[[36;1m  log_info "Installation complete!"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2063021Z ^[[36;1mfi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:12.2097650Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Build amd64	Build and push app	2026-05-19T00:23:12.2098777Z env:
+Build amd64	Build and push app	2026-05-19T00:23:12.2099416Z   REGISTRY: ghcr.io
+Build amd64	Build and push app	2026-05-19T00:23:12.2100159Z   input_cosign_release: v2.5.3
+Build amd64	Build and push app	2026-05-19T00:23:12.2101039Z   input_install_dir: $HOME/.cosign
+Build amd64	Build and push app	2026-05-19T00:23:12.2102222Z   input_use_sudo: false
+Build amd64	Build and push app	2026-05-19T00:23:12.2103007Z   runner_arch: X64
+Build amd64	Build and push app	2026-05-19T00:23:12.2103717Z   runner_os: Linux
+Build amd64	Build and push app	2026-05-19T00:23:12.2104428Z ##[endgroup]
+Build amd64	Build and push app	2026-05-19T00:23:12.2223985Z ^[[1;32mINFO^[[0m: Downloading bootstrap version 'v3.0.5' of cosign to verify version to be installed...
+Build amd64	Build and push app	2026-05-19T00:23:12.2226922Z       https://github.com/sigstore/cosign/releases/download/v3.0.5/cosign-linux-amd64
+Build amd64	Build and push app	2026-05-19T00:23:13.2050060Z ^[[1;32mINFO^[[0m: Custom cosign version 'v2.5.3' requested
+Build amd64	Build and push app	2026-05-19T00:23:13.2051089Z ^[[1;32mINFO^[[0m: Downloading platform-specific version 'v2.5.3' of cosign...
+Build amd64	Build and push app	2026-05-19T00:23:13.2052458Z       https://github.com/sigstore/cosign/releases/download/v2.5.3/cosign-linux-amd64
+Build amd64	Build and push app	2026-05-19T00:23:14.4100847Z ^[[1;32mINFO^[[0m: Downloading cosign public key 'v2.5.3' of cosign...
+Build amd64	Build and push app	2026-05-19T00:23:14.4102233Z     https://raw.githubusercontent.com/sigstore/cosign/v2.5.3/release/release-cosign.pub
+Build amd64	Build and push app	2026-05-19T00:23:14.4103224Z ^[[1;32mINFO^[[0m: Verifying public key matches expected value
+Build amd64	Build and push app	2026-05-19T00:23:14.5066573Z ^[[1;32mINFO^[[0m: Downloading detached signature for platform-specific 'v2.5.3' of cosign...
+Build amd64	Build and push app	2026-05-19T00:23:14.5067329Z       https://github.com/sigstore/cosign/releases/download/v2.5.3/cosign-linux-amd64.sig
+Build amd64	Build and push app	2026-05-19T00:23:14.7029279Z ^[[1;32mINFO^[[0m: Using bootstrap cosign to verify signature of desired cosign version
+Build amd64	Build and push app	2026-05-19T00:23:15.7944770Z Verified OK
+Build amd64	Build and push app	2026-05-19T00:23:15.8214301Z ^[[1;32mINFO^[[0m: Installation complete!
+Build amd64	Build and push app	2026-05-19T00:23:15.8265073Z ##[group]Run envsubst <<<"${input_install_dir}" >> "$GITHUB_PATH"
+Build amd64	Build and push app	2026-05-19T00:23:15.8265498Z ^[[36;1menvsubst <<<"${input_install_dir}" >> "$GITHUB_PATH"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8298489Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Build amd64	Build and push app	2026-05-19T00:23:15.8298814Z env:
+Build amd64	Build and push app	2026-05-19T00:23:15.8299037Z   REGISTRY: ghcr.io
+Build amd64	Build and push app	2026-05-19T00:23:15.8299237Z   input_install_dir: $HOME/.cosign
+Build amd64	Build and push app	2026-05-19T00:23:15.8299464Z ##[endgroup]
+Build amd64	Build and push app	2026-05-19T00:23:15.8394947Z ##[group]Run input=$(echo "/home/runner/work/_actions/home-assistant/builder/2026.03.2" | rev | cut -d"/" -f1 | rev)
+Build amd64	Build and push app	2026-05-19T00:23:15.8395701Z ^[[36;1minput=$(echo "/home/runner/work/_actions/home-assistant/builder/2026.03.2" | rev | cut -d"/" -f1 | rev)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8396228Z ^[[36;1mif [[ "${input}" == "master" ]] || [[ -z "${input}" ]]; then^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8396548Z ^[[36;1m  input="latest"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8396752Z ^[[36;1mfi^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8396974Z ^[[36;1mecho "version=${input}" >> "$GITHUB_OUTPUT"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8428181Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Build amd64	Build and push app	2026-05-19T00:23:15.8428510Z env:
+Build amd64	Build and push app	2026-05-19T00:23:15.8428678Z   REGISTRY: ghcr.io
+Build amd64	Build and push app	2026-05-19T00:23:15.8428883Z ##[endgroup]
+Build amd64	Build and push app	2026-05-19T00:23:15.8536922Z ##[group]Run docker pull ghcr.io/home-assistant/amd64-builder:2026.03.2
+Build amd64	Build and push app	2026-05-19T00:23:15.8537422Z ^[[36;1mdocker pull ghcr.io/home-assistant/amd64-builder:2026.03.2^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8537791Z ^[[36;1mcosign verify \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8538165Z ^[[36;1m  --certificate-oidc-issuer https://token.actions.githubusercontent.com \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8538740Z ^[[36;1m  --certificate-identity-regexp https://github.com/home-assistant/builder/.* \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8539189Z ^[[36;1m  ghcr.io/home-assistant/amd64-builder:2026.03.2^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:15.8568488Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Build amd64	Build and push app	2026-05-19T00:23:15.8568846Z env:
+Build amd64	Build and push app	2026-05-19T00:23:15.8569008Z   REGISTRY: ghcr.io
+Build amd64	Build and push app	2026-05-19T00:23:15.8569205Z ##[endgroup]
+Build amd64	Build and push app	2026-05-19T00:23:16.2806120Z 2026.03.2: Pulling from home-assistant/amd64-builder
+Build amd64	Build and push app	2026-05-19T00:23:16.2813545Z d49a2dee86fb: Pulling fs layer
+Build amd64	Build and push app	2026-05-19T00:23:16.2813991Z 58ded7d9f5a4: Pulling fs layer
+Build amd64	Build and push app	2026-05-19T00:23:16.2814668Z 567ec96382c8: Pulling fs layer
+Build amd64	Build and push app	2026-05-19T00:23:16.2815023Z e64ffa2a3e26: Pulling fs layer
+Build amd64	Build and push app	2026-05-19T00:23:16.2815384Z 1db834bd795c: Pulling fs layer
+Build amd64	Build and push app	2026-05-19T00:23:16.2815738Z 101e00975148: Pulling fs layer
+Build amd64	Build and push app	2026-05-19T00:23:16.2816083Z 59d30a7fee1b: Pulling fs layer
+Build amd64	Build and push app	2026-05-19T00:23:16.2816430Z 1db834bd795c: Waiting
+Build amd64	Build and push app	2026-05-19T00:23:16.2816731Z 101e00975148: Waiting
+Build amd64	Build and push app	2026-05-19T00:23:16.2817256Z 59d30a7fee1b: Waiting
+Build amd64	Build and push app	2026-05-19T00:23:16.2817716Z e64ffa2a3e26: Waiting
+Build amd64	Build and push app	2026-05-19T00:23:16.4150496Z d49a2dee86fb: Verifying Checksum
+Build amd64	Build and push app	2026-05-19T00:23:16.4182134Z d49a2dee86fb: Download complete
+Build amd64	Build and push app	2026-05-19T00:23:16.4182625Z 58ded7d9f5a4: Verifying Checksum
+Build amd64	Build and push app	2026-05-19T00:23:16.4183505Z 58ded7d9f5a4: Download complete
+Build amd64	Build and push app	2026-05-19T00:23:16.5356286Z d49a2dee86fb: Pull complete
+Build amd64	Build and push app	2026-05-19T00:23:16.5567158Z 567ec96382c8: Verifying Checksum
+Build amd64	Build and push app	2026-05-19T00:23:16.5594214Z 567ec96382c8: Download complete
+Build amd64	Build and push app	2026-05-19T00:23:16.5594640Z e64ffa2a3e26: Verifying Checksum
+Build amd64	Build and push app	2026-05-19T00:23:16.5595027Z e64ffa2a3e26: Download complete
+Build amd64	Build and push app	2026-05-19T00:23:16.7177835Z 59d30a7fee1b: Verifying Checksum
+Build amd64	Build and push app	2026-05-19T00:23:16.7178436Z 59d30a7fee1b: Download complete
+Build amd64	Build and push app	2026-05-19T00:23:16.7179030Z 101e00975148: Download complete
+Build amd64	Build and push app	2026-05-19T00:23:16.9290368Z 58ded7d9f5a4: Pull complete
+Build amd64	Build and push app	2026-05-19T00:23:17.4587696Z 1db834bd795c: Verifying Checksum
+Build amd64	Build and push app	2026-05-19T00:23:17.4588299Z 1db834bd795c: Download complete
+Build amd64	Build and push app	2026-05-19T00:23:17.5590797Z 567ec96382c8: Pull complete
+Build amd64	Build and push app	2026-05-19T00:23:17.5725858Z e64ffa2a3e26: Pull complete
+Build amd64	Build and push app	2026-05-19T00:23:19.8235743Z 1db834bd795c: Pull complete
+Build amd64	Build and push app	2026-05-19T00:23:19.8700371Z 101e00975148: Pull complete
+Build amd64	Build and push app	2026-05-19T00:23:19.8826641Z 59d30a7fee1b: Pull complete
+Build amd64	Build and push app	2026-05-19T00:23:19.8865665Z Digest: sha256:bb0916d95292d912aaf9a02f0568db336f81d12f6f9b617a93d362efa8bc5d2f
+Build amd64	Build and push app	2026-05-19T00:23:19.8882529Z Status: Downloaded newer image for ghcr.io/home-assistant/amd64-builder:2026.03.2
+Build amd64	Build and push app	2026-05-19T00:23:19.8891222Z ghcr.io/home-assistant/amd64-builder:2026.03.2
+Build amd64	Build and push app	2026-05-19T00:23:20.1083637Z setting TUF refresh period to 24h0m0s
+Build amd64	Build and push app	2026-05-19T00:23:20.4718675Z 
+Build amd64	Build and push app	2026-05-19T00:23:20.4719445Z Verification for ghcr.io/home-assistant/amd64-builder:2026.03.2 --
+Build amd64	Build and push app	2026-05-19T00:23:20.4721097Z The following checks were performed on each of these signatures:
+Build amd64	Build and push app	2026-05-19T00:23:20.4722181Z   - The cosign claims were validated
+Build amd64	Build and push app	2026-05-19T00:23:20.4723635Z   - Existence of the claims in the transparency log was verified offline
+Build amd64	Build and push app	2026-05-19T00:23:20.4725220Z   - The code-signing certificate was verified using trusted certificate authority certificates
+Build amd64	Build and push app	2026-05-19T00:23:20.4726186Z 
+Build amd64	Build and push app	2026-05-19T00:23:20.4969221Z [{"critical":{"identity":{"docker-reference":"ghcr.io/home-assistant/amd64-builder"},"image":{"docker-manifest-digest":"sha256:bb0916d95292d912aaf9a02f0568db336f81d12f6f9b617a93d362efa8bc5d2f"},"type":"cosign container image signature"},"optional":{"1.3.6.1.4.1.57264.1.1":"https://token.actions.githubusercontent.com","1.3.6.1.4.1.57264.1.2":"release","1.3.6.1.4.1.57264.1.3":"62a1597b84b3461abad9816d9cd92862a2b542c3","1.3.6.1.4.1.57264.1.4":"Publish","1.3.6.1.4.1.57264.1.5":"home-assistant/builder","1.3.6.1.4.1.57264.1.6":"refs/tags/2026.03.2","Bundle":{"SignedEntryTimestamp":"MEQCIHoMikL7gMDtApaQRFal9ldWX1pGMGwv6YjWQCZJExiuAiA2NMG53XZ/EStpMSVNfGnM9naK6QATcwAJTg3wCbC+Mg==","Payload":{"body":"eyJhcGlWZXJzaW9uIjoiMC4wLjEiLCJraW5kIjoiaGFzaGVkcmVrb3JkIiwic3BlYyI6eyJkYXRhIjp7Imhhc2giOnsiYWxnb3JpdGhtIjoic2hhMjU2IiwidmFsdWUiOiI4MTA4ZGE5NjM0ZWJkNDBiNzYxODZmMzA2NzlkMTk3NjRkOGE1MGVlNWYzYzljMmNiM2FiZjlkZGNmNjM5ZGVkIn19LCJzaWduYXR1cmUiOnsiY29udGVudCI6Ik1FVUNJUURuUkhKU0hoL3c5MFZSVzdBZ0wrR3RCYjJ5Mm91MFl1Vit2aTRHaHBOd2ZnSWdLNVJYVUpJZWJOa0I4VGxKTGI0U2dzY1RJdkNNQTd1UUhHSHg4RzMxWWpJPSIsInB1YmxpY0tleSI6eyJjb250ZW50IjoiTFMwdExTMUNSVWRKVGlCRFJWSlVTVVpKUTBGVVJTMHRMUzB0Q2sxSlNVYzBWRU5EUW0xbFowRjNTVUpCWjBsVlJYRlFTSFpTTkdkSVUyOTRUazFxZUdJcldDdFRRMnA0TTI5amQwTm5XVWxMYjFwSmVtb3dSVUYzVFhjS1RucEZWazFDVFVkQk1WVkZRMmhOVFdNeWJHNWpNMUoyWTIxVmRWcEhWakpOVWpSM1NFRlpSRlpSVVVSRmVGWjZZVmRrZW1SSE9YbGFVekZ3WW01U2JBcGpiVEZzV2tkc2FHUkhWWGRJYUdOT1RXcFpkMDE2UlROTlZGbDRUbnBCZVZkb1kwNU5hbGwzVFhwRk0wMVVXWGxPZWtGNVYycEJRVTFHYTNkRmQxbElDa3R2V2tsNmFqQkRRVkZaU1V0dldrbDZhakJFUVZGalJGRm5RVVZDUm5WaFVubExTelpvWW5JM0wwUmpWSGhLYjI5T2VuUjVUMGsyZDBOUFNVMWlObVVLTnpNd1JGaHpUR2RSWmpKVFFsWnFVVk5xYWxoblJGUldkR1ZqUWxsSVZEUXJkVlI0Y0RkRk5td3JUMDVwWXpaaFRqWlBRMEpaV1hkbloxZERUVUUwUndwQk1WVmtSSGRGUWk5M1VVVkJkMGxJWjBSQlZFSm5UbFpJVTFWRlJFUkJTMEpuWjNKQ1owVkdRbEZqUkVGNlFXUkNaMDVXU0ZFMFJVWm5VVlV6VERWaUNsbFZiWEpuVjFSTU9XOXNVWFowTmxSaVdEWjJTemRuZDBoM1dVUldVakJxUWtKbmQwWnZRVlV6T1ZCd2VqRlphMFZhWWpWeFRtcHdTMFpYYVhocE5Ga0tXa1E0ZDJGUldVUldVakJTUVZGSUwwSkdPSGRZV1ZwaVlVaFNNR05JVFRaTWVUbHVZVmhTYjJSWFNYVlpNamwwVERKb2RtSlhWWFJaV0U1NllWaE9NQXBaVnpVd1RESktNV0ZYZUd0YVdFbDJURzFrY0dSSGFERlphVGt6WWpOS2NscHRlSFprTTAxMlkwaFdhV0pIYkhwaFF6VTFZbGQ0UVdOdFZtMWplVGt3Q2xsWFpIcE1la2wzVFdwWmRVMUVUWFZOYWtFMVFtZHZja0puUlVWQldVOHZUVUZGUWtKRGRHOWtTRkozWTNwdmRrd3pVblpoTWxaMVRHMUdhbVJIYkhZS1ltNU5kVm95YkRCaFNGWnBaRmhPYkdOdFRuWmlibEpzWW01UmRWa3lPWFJOUWxWSFEybHpSMEZSVVVKbk56aDNRVkZKUlVJelNteGlSMVpvWXpKVmR3cE9aMWxMUzNkWlFrSkJSMFIyZWtGQ1FYZFJiMDVxU21oTlZGVTFUakpKTkU1SFNYcE9SRmw0V1ZkS2FGcEVhelJOVkZwclQxZE9hMDlVU1RST2FrcG9DazF0U1RGT1JFcHFUWHBCVmtKbmIzSkNaMFZGUVZsUEwwMUJSVVZDUVdSUlpGZEtjMkZZVG05TlExRkhRMmx6UjBGUlVVSm5OemgzUVZGVlJVWnRhSFlLWWxkVmRGbFlUbnBoV0U0d1dWYzFNRXd5U2pGaFYzaHJXbGhKZDBsUldVdExkMWxDUWtGSFJIWjZRVUpDWjFGVVkyMVdiV041T1RCWlYyUjZUSHBKZHdwTmFsbDFUVVJOZFUxcVFUZENaMjl5UW1kRlJVRlpUeTlOUVVWSlFrTXdUVXN5YURCa1NFSjZUMms0ZG1SSE9YSmFWelIxV1ZkT01HRlhPWFZqZVRWdUNtRllVbTlrVjBveFl6SldlVmt5T1hWa1IxWjFaRU0xYW1JeU1IZGhkMWxMUzNkWlFrSkJSMFIyZWtGQ1ExRlNaRVJHZEc5a1NGSjNZM3B2ZGt3eVpIQUtaRWRvTVZscE5XcGlNakIyWVVjNWRGcFRNV2hqTTA1d1l6TlNhR0p1VVhaWmJsWndZa2RTYkdOcE9IVmFNbXd3WVVoV2FVd3paSFpqYlhSdFlrYzVNd3BqZVRsM1pGZEtjMkZZVG05TWJteDBZa1ZDZVZwWFducE1NMUpvV2pOTmRrMXFRWGxPYVRSM1RYazBlVTFFWjBkRGFYTkhRVkZSUW1jM09IZEJVVzlGQ2t0bmQyOU9ha3BvVFZSVk5VNHlTVFJPUjBsNlRrUlplRmxYU21oYVJHczBUVlJhYTA5WFRtdFBWRWswVG1wS2FFMXRTVEZPUkVwcVRYcEJaRUpuYjNJS1FtZEZSVUZaVHk5TlFVVk1Ra0U0VFVSWFpIQmtSMmd4V1dreGIySXpUakJhVjFGM1QxRlpTMHQzV1VKQ1FVZEVkbnBCUWtSQlVYSkVRMnh2WkVoU2R3cGplbTkyVERKa2NHUkhhREZaYVRWcVlqSXdkbUZIT1hSYVV6Rm9Zek5PY0dNelVtaGlibEYyV1c1V2NHSkhVbXhqYWtFMFFtZHZja0puUlVWQldVOHZDazFCUlU1Q1EyOU5TMFJaZVZsVVJURlBWR1JwVDBSU2FVMTZVVEpOVjBacFdWZFJOVTlFUlRKYVJHeHFXa1JyZVU5RVdYbFpWRXBwVGxSUmVWbDZUWGNLU1hkWlMwdDNXVUpDUVVkRWRucEJRa1JuVVZaRVFrNTVXbGRhZWt3elVtaGFNMDEyVFdwQmVVNXBOSGROZVRSNVRVSnJSME5wYzBkQlVWRkNaemM0ZHdwQlVUaEZRM2QzU2sxVVozaE5lbU40VGtSbk0wMUVSVWREYVhOSFFWRlJRbWMzT0hkQlVrRkZTWGQzYUdGSVVqQmpTRTAyVEhrNWJtRllVbTlrVjBsMUNsa3lPWFJNTW1oMllsZFZkRmxZVG5waFdFNHdXVmMxTUUxQ1owZERhWE5IUVZGUlFtYzNPSGRCVWtWRlEyZDNTVTFVVFRST1JGRTFUbnBWZDJGM1dVc0tTM2RaUWtKQlIwUjJla0ZDUldkU1pFUkdkRzlrU0ZKM1kzcHZka3d5WkhCa1IyZ3hXV2sxYW1JeU1IWmhSemwwV2xNeGFHTXpUbkJqTTFKb1ltNVJkZ3BaYmxad1lrZFNiR05wT0hWYU1td3dZVWhXYVV3elpIWmpiWFJ0WWtjNU0yTjVPWGRrVjBwellWaE9iMHh1YkhSaVJVSjVXbGRhZWt3elVtaGFNMDEyQ2sxcVFYbE9hVFIzVFhrMGVVMUVaMGREYVhOSFFWRlJRbWMzT0hkQlVrMUZTMmQzYjA1cVNtaE5WRlUxVGpKSk5FNUhTWHBPUkZsNFdWZEthRnBFYXpRS1RWUmFhMDlYVG10UFZFazBUbXBLYUUxdFNURk9SRXBxVFhwQldFSm5iM0pDWjBWRlFWbFBMMDFCUlZWQ1FXdE5Rak5LYkdKSFZtaGpNbFYzV0ZGWlN3cExkMWxDUWtGSFJIWjZRVUpHVVZKUVJFVXhiMlJJVW5kamVtOTJUREprY0dSSGFERlphVFZxWWpJd2RtRkhPWFJhVXpGb1l6Tk9jR016VW1oaWJsRjJDbGx1Vm5CaVIxSnNZMms1YUZrelVuQmlNalY2VEROS01XSnVUWFpOYWsxNVRVUlJlazVFV1RCT1ZHZDJXVmhTTUZwWE1YZGtTRTEyVFZSQlYwSm5iM0lLUW1kRlJVRlpUeTlOUVVWWFFrRm5UVUp1UWpGWmJYaHdXWHBEUW1sUldVdExkMWxDUWtGSVYyVlJTVVZCWjFJM1FraHJRV1IzUWpGQlRqQTVUVWR5UndwNGVFVjVXWGhyWlVoS2JHNU9kMHRwVTJ3Mk5ETnFlWFF2TkdWTFkyOUJka3RsTms5QlFVRkNibEI1VjBod01FRkJRVkZFUVVWWmQxSkJTV2RaVm1jNUNsVkJTMXAwVUZkMWVUQkJNSGs1Tld0dmNXRTNVM1p6U0VjeldqaFBjVzVhVWtzdk5UZE9UVU5KUWxkQk9VWmlSbGxqUVd0U09DODFSMVZNZURkbWJVc0thaXRyU0dNMFVWSkViRlo2V0dkVU5HaEVhWFJOUVc5SFEwTnhSMU5OTkRsQ1FVMUVRVEpuUVUxSFZVTk5RMHhKYlRnMlVuY3pjVUpXTUU0dmRHOWFSZ3BEVFV4QmR6TnJlbnBxVEZkT2JIazNjMnhyWlc1TWNUVmpUVWwyUlhaVFJYZDBXbTlYYURWelJETlRWamxuU1hoQlVHdHFhRkpLVERBMGIzQjBaakE0Q2pKcGFVa3lja05sTkVaWFVVaFVXVUkyYWpWV2JrUkhaMFZRVVZoUGVHa3JRalJKVUdoSVdYaDJaMjFDUkZwRVZFeDNQVDBLTFMwdExTMUZUa1FnUTBWU1ZFbEdTVU5CVkVVdExTMHRMUW89In19fX0=","integratedTime":1773764223,"logIndex":1116383103,"logID":"c0d23d6ad406973f9559f3ba2d1ca01f84147d8ffc5b8445c224f98b9591801d"}},"Issuer":"https://token.actions.githubusercontent.com","Subject":"https://github.com/home-assistant/builder/.github/workflows/publish.yml@refs/tags/2026.03.2","githubWorkflowName":"Publish","githubWorkflowRef":"refs/tags/2026.03.2","githubWorkflowRepository":"home-assistant/builder","githubWorkflowSha":"62a1597b84b3461abad9816d9cd92862a2b542c3","githubWorkflowTrigger":"release"}}]
+Build amd64	Build and push app	2026-05-19T00:23:20.5209653Z ##[group]Run builder=$(docker images ghcr.io/home-assistant/amd64-builder:2026.03.2 -q)
+Build amd64	Build and push app	2026-05-19T00:23:20.5210291Z ^[[36;1mbuilder=$(docker images ghcr.io/home-assistant/amd64-builder:2026.03.2 -q)^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5210700Z ^[[36;1mecho "id=$builder" >> "$GITHUB_OUTPUT"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5243875Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Build amd64	Build and push app	2026-05-19T00:23:20.5244187Z env:
+Build amd64	Build and push app	2026-05-19T00:23:20.5244350Z   REGISTRY: ghcr.io
+Build amd64	Build and push app	2026-05-19T00:23:20.5244529Z ##[endgroup]
+Build amd64	Build and push app	2026-05-19T00:23:20.5452608Z ##[group]Run env > "/home/runner/work/_actions/home-assistant/builder/2026.03.2/env_file"
+Build amd64	Build and push app	2026-05-19T00:23:20.5453191Z ^[[36;1menv > "/home/runner/work/_actions/home-assistant/builder/2026.03.2/env_file"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5453884Z ^[[36;1msed -i "/\(HOME\|TERM\|PWD\|HOSTNAME\|PATH\|SHLVL\|USER\|GOROOT\)/d" "/home/runner/work/_actions/home-assistant/builder/2026.03.2/env_file"^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5454434Z ^[[36;1m^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5454617Z ^[[36;1mdocker run --rm --privileged \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5454914Z ^[[36;1m    -v /var/run/docker.sock:/var/run/docker.sock:ro \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5455222Z ^[[36;1m    -v ~/.docker:/root/.docker \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5455730Z ^[[36;1m    -v /home/runner/work/hassio-app-unifi-protect-google-home/hassio-app-unifi-protect-google-home:/data \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5456411Z ^[[36;1m    --env-file "/home/runner/work/_actions/home-assistant/builder/2026.03.2/env_file" \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5456899Z ^[[36;1m    ghcr.io/home-assistant/amd64-builder:2026.03.2 \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5457197Z ^[[36;1m    --amd64 \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5457393Z ^[[36;1m--target . \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5457579Z ^[[36;1m--version "0.3.12" \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5457811Z ^[[36;1m--docker-hub ghcr.io/alex-savin \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5458057Z ^[[36;1m--no-latest \^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5458276Z ^[[36;1m--addon^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.5487951Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Build amd64	Build and push app	2026-05-19T00:23:20.5488263Z env:
+Build amd64	Build and push app	2026-05-19T00:23:20.5488422Z   REGISTRY: ghcr.io
+Build amd64	Build and push app	2026-05-19T00:23:20.5488598Z ##[endgroup]
+Build amd64	Build and push app	2026-05-19T00:23:20.7624615Z [00:23:20] WARNING: ^[[33mThis builder script is deprecated and no longer supported.^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.7644289Z [00:23:20] WARNING: ^[[33mPlease migrate your builds to use standard Dockerfiles with the new reusable GitHub Actions.^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:20.7695626Z [00:23:20] INFO: ^[[32mSetup crosscompiling feature^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:22.4710910Z [00:23:22] INFO: ^[[32mUsing host docker setup with '/var/run/docker.sock'^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:22.4827631Z [00:23:22] INFO: ^[[32mRun addon build for: amd64^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:22.4852921Z [00:23:22] INFO: ^[[32mNo build information or from not provided. Using default base image.^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:22.5148807Z [00:23:22] INFO: ^[[32mInit cache for ghcr.io/alex-savin/amd64-app-unifi-protect-google-home:0.3.12 with tag latest and platform linux/amd64^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:22.8789879Z [00:23:22] WARNING: ^[[33mNo cache image found. Disabling cache for this build.^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:22.8831500Z [00:23:22] INFO: ^[[32mRun build for ghcr.io/alex-savin/amd64-app-unifi-protect-google-home:0.3.12 with platform linux/amd64^[[0m
+Build amd64	Build and push app	2026-05-19T00:23:23.0851178Z #0 building with "default" instance using docker driver
+Build amd64	Build and push app	2026-05-19T00:23:23.0851658Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.0852069Z #1 [internal] load build definition from Dockerfile
+Build amd64	Build and push app	2026-05-19T00:23:23.0852593Z #1 transferring dockerfile: 1.45kB done
+Build amd64	Build and push app	2026-05-19T00:23:23.0853486Z #1 WARN: InvalidDefaultArgInFrom: Default value for ARG ${BUILD_FROM} results in empty or invalid base image name (line 17)
+Build amd64	Build and push app	2026-05-19T00:23:23.0854595Z #1 DONE 0.0s
+Build amd64	Build and push app	2026-05-19T00:23:23.0854714Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.0854858Z #2 [auth] library/golang:pull token for registry-1.docker.io
+Build amd64	Build and push app	2026-05-19T00:23:23.0855154Z #2 DONE 0.0s
+Build amd64	Build and push app	2026-05-19T00:23:23.0855251Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.0855392Z #3 [auth] home-assistant/amd64-base:pull token for ghcr.io
+Build amd64	Build and push app	2026-05-19T00:23:23.2349637Z #3 DONE 0.0s
+Build amd64	Build and push app	2026-05-19T00:23:23.2349867Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.2350191Z #4 [internal] load metadata for docker.io/library/golang:1.26-alpine
+Build amd64	Build and push app	2026-05-19T00:23:23.4572763Z #4 DONE 0.5s
+Build amd64	Build and push app	2026-05-19T00:23:23.4573008Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.4573348Z #5 [internal] load metadata for ghcr.io/home-assistant/amd64-base:latest
+Build amd64	Build and push app	2026-05-19T00:23:23.5582815Z #5 DONE 0.5s
+Build amd64	Build and push app	2026-05-19T00:23:23.5583072Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5583519Z #6 [internal] load .dockerignore
+Build amd64	Build and push app	2026-05-19T00:23:23.5583920Z #6 transferring context: 2B done
+Build amd64	Build and push app	2026-05-19T00:23:23.5584252Z #6 DONE 0.0s
+Build amd64	Build and push app	2026-05-19T00:23:23.5584400Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5584524Z #7 [internal] load build context
+Build amd64	Build and push app	2026-05-19T00:23:23.5584896Z #7 transferring context: 1.56MB 0.0s done
+Build amd64	Build and push app	2026-05-19T00:23:23.5585261Z #7 DONE 0.0s
+Build amd64	Build and push app	2026-05-19T00:23:23.5585410Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5586020Z #8 [stage-1 1/4] FROM ghcr.io/home-assistant/amd64-base:latest@sha256:7c2e95909a2b767bd23a594c35240caf3a954e93a3408675388ba8ca0b20cbb3
+Build amd64	Build and push app	2026-05-19T00:23:23.5586893Z #8 resolve ghcr.io/home-assistant/amd64-base:latest@sha256:7c2e95909a2b767bd23a594c35240caf3a954e93a3408675388ba8ca0b20cbb3 done
+Build amd64	Build and push app	2026-05-19T00:23:23.5801833Z #8 sha256:93d485d81c81fcc69ee13e981d11e97b0191e5d2f9f5d5e4c5e60a6a81300bd0 674B / 674B done
+Build amd64	Build and push app	2026-05-19T00:23:23.5807366Z #8 sha256:9379838ee4c30e7728bd35036d8085a5e11702724b5dd46a73e3974e680e0af9 8.42kB / 8.42kB done
+Build amd64	Build and push app	2026-05-19T00:23:23.5808516Z #8 sha256:7c2e95909a2b767bd23a594c35240caf3a954e93a3408675388ba8ca0b20cbb3 855B / 855B done
+Build amd64	Build and push app	2026-05-19T00:23:23.5809316Z #8 CANCELED
+Build amd64	Build and push app	2026-05-19T00:23:23.5809505Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5809648Z #9 [build 2/6] WORKDIR /src
+Build amd64	Build and push app	2026-05-19T00:23:23.5810009Z #9 CACHED
+Build amd64	Build and push app	2026-05-19T00:23:23.5810194Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5810325Z #10 [build 3/6] COPY go.mod go.sum ./
+Build amd64	Build and push app	2026-05-19T00:23:23.5817055Z #10 ERROR: failed to calculate checksum of ref a8f8c85e-0846-485a-8ac7-2f95cc5801cd::otyjjc9w77eogqny36t217elj: "/go.sum": not found
+Build amd64	Build and push app	2026-05-19T00:23:23.5817963Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5818259Z #11 [stage-1 2/4] COPY --from=build /out/bridge /usr/local/bin/bridge
+Build amd64	Build and push app	2026-05-19T00:23:23.5818831Z #11 CACHED
+Build amd64	Build and push app	2026-05-19T00:23:23.5818995Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5819120Z #12 [build 5/6] COPY . .
+Build amd64	Build and push app	2026-05-19T00:23:23.5819453Z #12 CACHED
+Build amd64	Build and push app	2026-05-19T00:23:23.5819621Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5820089Z #13 [build 6/6] RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/bridge ./cmd/bridge
+Build amd64	Build and push app	2026-05-19T00:23:23.5820798Z #13 CACHED
+Build amd64	Build and push app	2026-05-19T00:23:23.5820966Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5821099Z #14 [build 4/6] RUN go mod download
+Build amd64	Build and push app	2026-05-19T00:23:23.5821482Z #14 CACHED
+Build amd64	Build and push app	2026-05-19T00:23:23.5821648Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5822004Z #15 [stage-1 3/4] COPY run.sh /run.sh
+Build amd64	Build and push app	2026-05-19T00:23:23.5823001Z #15 ERROR: failed to calculate checksum of ref a8f8c85e-0846-485a-8ac7-2f95cc5801cd::otyjjc9w77eogqny36t217elj: "/run.sh": not found
+Build amd64	Build and push app	2026-05-19T00:23:23.5823886Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5824420Z #16 [build 1/6] FROM docker.io/library/golang:1.26-alpine@sha256:91eda9776261207ea25fd06b5b7fed8d397dd2c0a283e77f2ab6e91bfa71079d
+Build amd64	Build and push app	2026-05-19T00:23:23.5825292Z #16 resolve docker.io/library/golang:1.26-alpine@sha256:91eda9776261207ea25fd06b5b7fed8d397dd2c0a283e77f2ab6e91bfa71079d done
+Build amd64	Build and push app	2026-05-19T00:23:23.5825992Z #16 sha256:f44b851aa23dfa219d18db6eab743203245429d355cb619cf96a2ffe2a84ba7a 1.92kB / 1.92kB done
+Build amd64	Build and push app	2026-05-19T00:23:23.5826584Z #16 sha256:b8fbd9862b05789bb9e5462bf7d67300660e2ab5217aeb637b8db103ac45ea21 2.19kB / 2.19kB done
+Build amd64	Build and push app	2026-05-19T00:23:23.5827178Z #16 sha256:91eda9776261207ea25fd06b5b7fed8d397dd2c0a283e77f2ab6e91bfa71079d 10.29kB / 10.29kB done
+Build amd64	Build and push app	2026-05-19T00:23:23.5827600Z #16 CANCELED
+Build amd64	Build and push app	2026-05-19T00:23:23.5827760Z ------
+Build amd64	Build and push app	2026-05-19T00:23:23.5827926Z  > [build 3/6] COPY go.mod go.sum ./:
+Build amd64	Build and push app	2026-05-19T00:23:23.5828144Z ------
+Build amd64	Build and push app	2026-05-19T00:23:23.5828528Z ------
+Build amd64	Build and push app	2026-05-19T00:23:23.5828690Z  > [stage-1 3/4] COPY run.sh /run.sh:
+Build amd64	Build and push app	2026-05-19T00:23:23.5828896Z ------
+Build amd64	Build and push app	2026-05-19T00:23:23.5828998Z 
+Build amd64	Build and push app	2026-05-19T00:23:23.5829323Z  ^[[33m1 warning found (use docker --debug to expand):
+Build amd64	Build and push app	2026-05-19T00:23:23.5829941Z ^[[0m - InvalidDefaultArgInFrom: Default value for ARG ${BUILD_FROM} results in empty or invalid base image name (line 17)
+Build amd64	Build and push app	2026-05-19T00:23:23.5830433Z Dockerfile:43
+Build amd64	Build and push app	2026-05-19T00:23:23.5830597Z --------------------
+Build amd64	Build and push app	2026-05-19T00:23:23.5830768Z   41 |     
+Build amd64	Build and push app	2026-05-19T00:23:23.5830983Z   42 |     COPY --from=build /out/bridge /usr/local/bin/bridge
+Build amd64	Build and push app	2026-05-19T00:23:23.5831270Z   43 | >>> COPY run.sh /run.sh
+Build amd64	Build and push app	2026-05-19T00:23:23.5831483Z   44 |     RUN chmod a+x /run.sh
+Build amd64	Build and push app	2026-05-19T00:23:23.5831920Z   45 |     
+Build amd64	Build and push app	2026-05-19T00:23:23.5832327Z --------------------
+Build amd64	Build and push app	2026-05-19T00:23:23.5833015Z ERROR: failed to solve: failed to compute cache key: failed to calculate checksum of ref a8f8c85e-0846-485a-8ac7-2f95cc5801cd::otyjjc9w77eogqny36t217elj: "/run.sh": not found
+Build amd64	Build and push app	2026-05-19T00:23:23.6572894Z ##[error]Process completed with exit code 1.

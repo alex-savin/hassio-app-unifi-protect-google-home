@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/ghome"
@@ -68,5 +69,32 @@ func TestHandleStateChangeNoHomeGraph(t *testing.T) {
 	r.handleStateChange("cam-1", true)
 	if got := src.snapshotMap()["cam-1"].Online; got != true {
 		t.Fatalf("snapshot not restored to online: online=%v", got)
+	}
+}
+
+// TestDecodeOnline covers the multiple shapes Protect can use to signal
+// camera connectivity transitions over the updates WebSocket.
+func TestDecodeOnline(t *testing.T) {
+	cases := []struct {
+		name   string
+		fields map[string]json.RawMessage
+		want   bool
+		ok     bool
+	}{
+		{"state CONNECTED", map[string]json.RawMessage{"state": json.RawMessage(`"CONNECTED"`)}, true, true},
+		{"state DISCONNECTED", map[string]json.RawMessage{"state": json.RawMessage(`"DISCONNECTED"`)}, false, true},
+		{"state CONNECTING", map[string]json.RawMessage{"state": json.RawMessage(`"CONNECTING"`)}, false, true},
+		{"isConnected true", map[string]json.RawMessage{"isConnected": json.RawMessage(`true`)}, true, true},
+		{"isConnected false", map[string]json.RawMessage{"isConnected": json.RawMessage(`false`)}, false, true},
+		{"unrelated field", map[string]json.RawMessage{"name": json.RawMessage(`"Front"`)}, false, false},
+		{"empty", map[string]json.RawMessage{}, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := decodeOnline(tc.fields)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("got=(%v,%v) want=(%v,%v)", got, ok, tc.want, tc.ok)
+			}
+		})
 	}
 }
