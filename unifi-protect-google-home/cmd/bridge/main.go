@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -166,22 +167,19 @@ func run() int {
 	}
 	log.Printf("loaded %d camera(s)", len(src.snapshot()))
 
-	// Force a HomeGraph SYNC on every startup. The membership-diff path in
-	// the reconciler only fires RequestSync when cameras are added/removed,
-	// so a capability change (e.g. adding HLS to cameraStreamSupportedProtocols
-	// in 0.3.17) would otherwise never propagate until the next time a
-	// camera comes or goes. A single RequestSync per process start is
-	// cheap and idempotent.
+	fulfill := &ghome.Handler{Source: src}
+
+	// Conditionally fire HomeGraph RequestSync on startup. We only call it
+	// when the SYNC fingerprint (device list + advertised capabilities)
+	// differs from the one we persisted at the last successful sync —
+	// HomeGraph's per-project RequestSync quota is small (a few hundred
+	// per day) and restart loops would otherwise exhaust it and earn a
+	// 429 RESOURCE_EXHAUSTED, which is exactly what production logged on
+	// 0.3.21. The reconciler still fires RequestSync on live add/remove
+	// while the bridge is running.
+	syncStatePath := filepath.Join(filepath.Dir(*optsPath), "sync_state.json")
 	if hg != nil {
-		go func() {
-			syncCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			if err := hg.RequestSync(syncCtx, cfg.Bridge.AgentUserID); err != nil {
-				log.Printf("homegraph requestSync (startup): %v", err)
-			} else {
-				log.Printf("homegraph requestSync (startup): ok")
-			}
-		}()
+		go startupRequestSync(hg, fulfill, cfg.Bridge.AgentUserID, syncStatePath)
 	}
 
 	go rec.poll(ctx)
@@ -196,7 +194,7 @@ func run() int {
 		PublicBaseURL:     cfg.Bridge.PublicBaseURL,
 		StreamTokenSecret: []byte(cfg.Bridge.StreamTokenSecret),
 		OAuth:             oauthSrv,
-		Fulfill:           &ghome.Handler{Source: src},
+		Fulfill:           fulfill,
 		Registry:          registry,
 		WebRTC:            factory,
 		HLS:               hlsSrv,
@@ -247,6 +245,59 @@ type reconciler struct {
 	hg          *ghome.HomeGraph
 	agentUserID string
 	verifyTLS   bool
+}
+
+// syncStateFile is the on-disk shape of the persisted SYNC fingerprint.
+type syncStateFile struct {
+	Fingerprint string `json:"fingerprint"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+// startupRequestSync fires a HomeGraph RequestSync iff the current SYNC
+// fingerprint differs from the previously persisted one. On success the
+// new fingerprint is written to disk so subsequent restarts skip the call
+// and stay well under HomeGraph's per-project quota.
+func startupRequestSync(hg *ghome.HomeGraph, fulfill *ghome.Handler, agentUserID, statePath string) {
+	current := fulfill.SyncFingerprint()
+
+	prev := ""
+	if data, err := os.ReadFile(statePath); err == nil {
+		var st syncStateFile
+		if json.Unmarshal(data, &st) == nil {
+			prev = st.Fingerprint
+		}
+	}
+
+	if prev == current {
+		log.Printf("homegraph requestSync (startup): skipped, fingerprint unchanged (%s)", current[:12])
+		return
+	}
+
+	syncCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := hg.RequestSync(syncCtx, agentUserID); err != nil {
+		log.Printf("homegraph requestSync (startup): %v", err)
+		return
+	}
+	log.Printf("homegraph requestSync (startup): ok (fingerprint %s -> %s)", truncFP(prev), current[:12])
+
+	out, _ := json.MarshalIndent(syncStateFile{
+		Fingerprint: current,
+		UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}, "", "  ")
+	if err := os.WriteFile(statePath, out, 0o600); err != nil {
+		log.Printf("homegraph requestSync (startup): warning, could not persist fingerprint to %s: %v", statePath, err)
+	}
+}
+
+func truncFP(fp string) string {
+	if fp == "" {
+		return "(none)"
+	}
+	if len(fp) < 12 {
+		return fp
+	}
+	return fp[:12]
 }
 
 func (r *reconciler) poll(ctx context.Context) {

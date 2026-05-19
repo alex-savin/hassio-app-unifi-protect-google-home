@@ -14,9 +14,12 @@
 package ghome
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -131,6 +134,29 @@ func (h *Handler) sync(reqID string) intentResponse {
 			"devices":     devices,
 		},
 	}
+}
+
+// SyncFingerprint returns a stable hex SHA-256 over the current SYNC
+// device list, suitable for deciding whether to issue HomeGraph
+// RequestSync on bridge startup.
+//
+// Anything that affects the SYNC response — camera ID/name/manufacturer/
+// model set, doorbell trait, advertised protocol list, auth flags —
+// naturally changes the fingerprint. The bridge version itself does not
+// need to be mixed in because every capability change is already reflected
+// in the marshalled device slice.
+//
+// Devices are sorted by ID for determinism; Go's encoding/json already
+// emits map keys in sorted order, so Attributes is stable too.
+func (h *Handler) SyncFingerprint() string {
+	resp := h.sync("")
+	devs, _ := resp.Payload["devices"].([]device)
+	sorted := make([]device, len(devs))
+	copy(sorted, devs)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
+	b, _ := json.Marshal(sorted)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func (h *Handler) query(reqID string, payload json.RawMessage) intentResponse {
