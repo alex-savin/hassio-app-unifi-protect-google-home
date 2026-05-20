@@ -213,3 +213,95 @@ func TestRestart_HitsSupervisor(t *testing.T) {
 		t.Fatalf("supervisor never received restart")
 	}
 }
+
+// fakeApplier records the most-recent allow-list passed to it so we can
+// assert the /api/cameras handler hot-applies on success.
+type fakeApplier struct {
+	mu      sync.Mutex
+	called  bool
+	lastIDs []string
+}
+
+func (f *fakeApplier) ApplyExposedCameras(ids []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.called = true
+	f.lastIDs = append(f.lastIDs[:0], ids...)
+}
+
+func TestCameras_PersistsAndApplies(t *testing.T) {
+	sup := newFakeSupervisor(t)
+	defer sup.close()
+	s := newTestServer(sup)
+	app := &fakeApplier{}
+	s.SetCameraApplier(app)
+
+	body, _ := json.Marshal(camerasRequest{
+		ExposedCameraIDs: []string{"cam-1", "cam-2", "cam-1", ""}, // dups + empty filtered
+	})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/cameras", bytes.NewReader(body)))
+
+	if rr.Code != 200 {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp camerasResponse
+	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
+	if !resp.OK {
+		t.Fatalf("ok=false: %+v", resp)
+	}
+
+	// Persisted to Supervisor under bridge.exposed_cameras, normalised.
+	sup.mu.Lock()
+	saved, _ := sup.savedOpts["bridge"].(map[string]any)
+	got, _ := saved["exposed_cameras"].([]any)
+	sup.mu.Unlock()
+	if len(got) != 2 || got[0] != "cam-1" || got[1] != "cam-2" {
+		t.Fatalf("supervisor saw %v, want [cam-1 cam-2]", got)
+	}
+
+	// Hot-applied to the running bridge with the same normalised list.
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if !app.called {
+		t.Fatalf("applier was never called")
+	}
+	if len(app.lastIDs) != 2 || app.lastIDs[0] != "cam-1" || app.lastIDs[1] != "cam-2" {
+		t.Fatalf("applier got %v, want [cam-1 cam-2]", app.lastIDs)
+	}
+
+	// Restart endpoint must NOT be hit — hot-apply is the whole point.
+	sup.mu.Lock()
+	defer sup.mu.Unlock()
+	if sup.restarted {
+		t.Fatalf("add-on was restarted; expected hot-apply path")
+	}
+}
+
+func TestCameras_EmptyListAllowsAll(t *testing.T) {
+	sup := newFakeSupervisor(t)
+	defer sup.close()
+	s := newTestServer(sup)
+	app := &fakeApplier{}
+	s.SetCameraApplier(app)
+
+	body, _ := json.Marshal(camerasRequest{ExposedCameraIDs: []string{}})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/cameras", bytes.NewReader(body)))
+	if rr.Code != 200 {
+		t.Fatalf("status=%d", rr.Code)
+	}
+
+	sup.mu.Lock()
+	saved, _ := sup.savedOpts["bridge"].(map[string]any)
+	got, _ := saved["exposed_cameras"].([]any)
+	sup.mu.Unlock()
+	if got == nil || len(got) != 0 {
+		t.Fatalf("expected empty list persisted, got %v (%T)", got, got)
+	}
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if !app.called || len(app.lastIDs) != 0 {
+		t.Fatalf("applier got %v, want empty", app.lastIDs)
+	}
+}

@@ -41,6 +41,12 @@ type Bridge struct {
 	// LogLevel is one of "debug", "info", "warn", "error" (case-insensitive).
 	// Empty defaults to "info".
 	LogLevel string `json:"log_level"`
+	// ExposedCameras is the allow-list of camera IDs that should be
+	// advertised to Google Home. Empty or nil means "all cameras" for
+	// backward compatibility with installs that pre-date this option.
+	// Cameras not in the list are hidden from SYNC, return online=false
+	// in QUERY, and EXECUTE rejects GetCameraStream for them.
+	ExposedCameras []string `json:"exposed_cameras,omitempty"`
 }
 
 // HomeGraphEnabled returns true unless the option is explicitly set to false.

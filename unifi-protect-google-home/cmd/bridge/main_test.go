@@ -98,3 +98,63 @@ func TestDecodeOnline(t *testing.T) {
 		})
 	}
 }
+
+// TestCameraSourceAllowList verifies bridge.exposed_cameras filtering:
+// ListCameras hides disallowed cameras (so SYNC/QUERY do not advertise
+// them) and the per-camera URL helpers refuse to mint stream URLs for
+// cameras that are not in the allow-list. nil/empty allow-list means
+// "all cameras allowed" for backward compatibility.
+func TestCameraSourceAllowList(t *testing.T) {
+	s := &cameraSource{}
+	s.set([]ghome.Camera{
+		{ID: "cam-1", Name: "Front", Online: true},
+		{ID: "cam-2", Name: "Back", Online: true},
+		{ID: "cam-3", Name: "Side", Online: true},
+	})
+
+	// Default (nil allow-list) exposes every camera.
+	if got := len(s.ListCameras()); got != 3 {
+		t.Fatalf("default: ListCameras=%d, want 3", got)
+	}
+	if !s.isAllowed("cam-1") || !s.isAllowed("cam-2") {
+		t.Fatalf("default: every camera must report allowed")
+	}
+
+	// Allow-list of [cam-1, cam-3] hides cam-2.
+	s.SetAllowed([]string{"cam-1", "cam-3"})
+	cams := s.ListCameras()
+	if len(cams) != 2 {
+		t.Fatalf("filtered: ListCameras=%d, want 2: %+v", len(cams), cams)
+	}
+	for _, c := range cams {
+		if c.ID == "cam-2" {
+			t.Fatalf("cam-2 leaked through filter: %+v", cams)
+		}
+	}
+	if s.isAllowed("cam-2") {
+		t.Fatalf("cam-2 must be reported as not allowed")
+	}
+
+	// Stream URL helpers refuse disallowed cameras.
+	if _, err := s.SignalingURL("cam-2"); err == nil {
+		t.Fatalf("SignalingURL(cam-2): expected error for hidden camera")
+	}
+	if _, err := s.HLSURL("cam-2"); err == nil {
+		t.Fatalf("HLSURL(cam-2): expected error for hidden camera")
+	}
+	if _, _, err := s.ProgressiveMP4URL("cam-2"); err == nil {
+		t.Fatalf("ProgressiveMP4URL(cam-2): expected error for hidden camera")
+	}
+
+	// Empty list resets to allow-all.
+	s.SetAllowed([]string{})
+	if got := len(s.ListCameras()); got != 3 {
+		t.Fatalf("reset: ListCameras=%d, want 3", got)
+	}
+
+	// All-empty-strings list also resets to allow-all (treated as unset).
+	s.SetAllowed([]string{"", ""})
+	if got := len(s.ListCameras()); got != 3 {
+		t.Fatalf("blank-only: ListCameras=%d, want 3", got)
+	}
+}

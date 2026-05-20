@@ -45,6 +45,10 @@ type Server struct {
 	// SetStatus from cmd/bridge once bootstrap completes. nil until then
 	// (the handler returns SetupMode=true).
 	status atomic.Value // holds StatusProvider
+	// applier hot-applies camera exposure changes to the running bridge.
+	// nil when the bridge is in setup-only mode — the /api/cameras handler
+	// then persists the change for the next restart.
+	applier atomic.Value // holds applierBox
 }
 
 // SetStatus registers a live status provider. Safe to call concurrently
@@ -56,12 +60,29 @@ func (s *Server) SetStatus(p StatusProvider) {
 	s.status.Store(statusBox{p})
 }
 
+// SetCameraApplier registers the live camera-allowlist applier. Safe to
+// call concurrently with HTTP handlers.
+func (s *Server) SetCameraApplier(a CameraAllowlistApplier) {
+	if s == nil {
+		return
+	}
+	s.applier.Store(applierBox{a})
+}
+
 // statusBox lets us store a typed nil through atomic.Value without panic.
 type statusBox struct{ p StatusProvider }
+
+// applierBox is the same trick as statusBox, for CameraAllowlistApplier.
+type applierBox struct{ a CameraAllowlistApplier }
 
 func (s *Server) loadStatus() StatusProvider {
 	v, _ := s.status.Load().(statusBox)
 	return v.p
+}
+
+func (s *Server) loadApplier() CameraAllowlistApplier {
+	v, _ := s.applier.Load().(applierBox)
+	return v.a
 }
 
 // New returns a Server configured from the standard add-on environment.
@@ -88,6 +109,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/discover", s.discoverHandler)
 	mux.HandleFunc("/api/validate", s.validateHandler)
 	mux.HandleFunc("/api/save", s.saveHandler)
+	mux.HandleFunc("/api/cameras", s.camerasHandler)
 	return mux
 }
 
@@ -297,6 +319,90 @@ func (s *Server) writeOptions(ctx context.Context, req validateRequest) error {
 func (s *Server) restartAddon(ctx context.Context) error {
 	_, err := s.supervisorJSON(ctx, http.MethodPost, "/addons/self/restart", nil)
 	return err
+}
+
+// camerasRequest is the body of POST /api/cameras. ExposedCameraIDs is the
+// new allow-list; nil/empty restores "all cameras allowed".
+type camerasRequest struct {
+	ExposedCameraIDs []string `json:"exposed_camera_ids"`
+}
+
+type camerasResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// camerasHandler persists the exposure allow-list to add-on options and
+// hot-applies it to the running bridge so the change takes effect without
+// a restart. Google sees the new device list on its next SYNC (we trigger
+// RequestSync from the applier).
+func (s *Server) camerasHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req camerasRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, camerasResponse{Error: "bad request: " + err.Error()})
+		return
+	}
+	// Normalise: drop empties and de-dup.
+	seen := map[string]bool{}
+	ids := make([]string, 0, len(req.ExposedCameraIDs))
+	for _, id := range req.ExposedCameraIDs {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	if err := s.writeExposedCameras(ctx, ids); err != nil {
+		writeJSON(w, http.StatusInternalServerError, camerasResponse{Error: err.Error()})
+		return
+	}
+	if a := s.loadApplier(); a != nil {
+		a.ApplyExposedCameras(ids)
+	}
+	writeJSON(w, http.StatusOK, camerasResponse{OK: true})
+}
+
+// writeExposedCameras merges bridge.exposed_cameras into the current
+// add-on options. An empty slice writes an empty list (meaning "all
+// cameras allowed" by the bridge's interpretation).
+func (s *Server) writeExposedCameras(ctx context.Context, ids []string) error {
+	info, err := s.supervisorJSON(ctx, http.MethodGet, "/addons/self/info", nil)
+	if err != nil {
+		return fmt.Errorf("supervisor info: %w", err)
+	}
+	data, _ := info["data"].(map[string]any)
+	opts, _ := data["options"].(map[string]any)
+	if opts == nil {
+		opts = map[string]any{}
+	}
+	bridgeOpts, _ := opts["bridge"].(map[string]any)
+	if bridgeOpts == nil {
+		bridgeOpts = map[string]any{}
+	}
+	// JSON marshal []string -> []any so Supervisor sees a real list.
+	list := make([]any, 0, len(ids))
+	for _, id := range ids {
+		list = append(list, id)
+	}
+	bridgeOpts["exposed_cameras"] = list
+	if v, ok := bridgeOpts["public_base_url"].(string); ok && v == "" {
+		delete(bridgeOpts, "public_base_url")
+	}
+	opts["bridge"] = bridgeOpts
+
+	body, _ := json.Marshal(map[string]any{"options": opts})
+	if _, err := s.supervisorJSON(ctx, http.MethodPost, "/addons/self/options", body); err != nil {
+		return fmt.Errorf("save options: %w", err)
+	}
+	return nil
 }
 
 // supervisorJSON performs a Supervisor REST call and decodes the response.

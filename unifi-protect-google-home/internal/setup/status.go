@@ -32,6 +32,11 @@ type CameraInfo struct {
 	Model    string `json:"model,omitempty"`
 	Online   bool   `json:"online"`
 	Doorbell bool   `json:"doorbell"`
+	// Exposed reports whether this camera is currently advertised to
+	// Google Home. When false the camera is hidden from SYNC and refused
+	// at EXECUTE — the user has explicitly opted it out of cloud
+	// playback via the ingress "Camera exposure" panel.
+	Exposed bool `json:"exposed"`
 }
 
 // GoogleStatus describes the Google Home / HomeGraph integration.
@@ -65,4 +70,15 @@ type BridgeStatus struct {
 // implementation can read from atomic snapshots cheaply.
 type StatusProvider interface {
 	Status() StatusSnapshot
+}
+
+// CameraAllowlistApplier is implemented by the running bridge so the
+// setup UI can hot-apply changes to bridge.exposed_cameras without
+// restarting the add-on. Implementations should update the in-memory
+// allow-list (so SYNC/QUERY/EXECUTE filter immediately) and, when
+// HomeGraph is wired, fire a RequestSync so Google re-pulls the device
+// list. Persistence of the change to options.json is the responsibility
+// of the setup server, not the applier.
+type CameraAllowlistApplier interface {
+	ApplyExposedCameras(ids []string)
 }

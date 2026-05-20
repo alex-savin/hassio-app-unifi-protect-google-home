@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"log"
 	"log/slog"
@@ -121,6 +122,12 @@ func run() int {
 
 	registry := streams.NewRegistry()
 	src := &cameraSource{}
+	src.SetAllowed(cfg.Bridge.ExposedCameras)
+	if n := len(cfg.Bridge.ExposedCameras); n > 0 {
+		log.Printf("camera exposure: %d camera(s) explicitly allowed via bridge.exposed_cameras", n)
+	} else {
+		log.Printf("camera exposure: bridge.exposed_cameras is empty \u2014 all cameras advertised to Google Home")
+	}
 
 	var hg *ghome.HomeGraph
 	if cfg.Google.HomeGraphEnabled() {
@@ -193,6 +200,7 @@ func run() int {
 			hg:            hg,
 			syncStatePath: syncStatePath,
 		})
+		setupSrv.SetCameraApplier(&cameraApplier{src: src, hg: hg, agentUserID: cfg.Bridge.AgentUserID})
 	}
 
 	go rec.poll(ctx)
@@ -497,7 +505,7 @@ func (r *reconciler) refresh(ctx context.Context) (string, error) {
 
 	added := 0
 	for id := range seen {
-		if _, had := prev[id]; !had {
+		if _, had := prev[id]; !had && r.src.isAllowed(id) {
 			added++
 		}
 	}
@@ -506,11 +514,21 @@ func (r *reconciler) refresh(ctx context.Context) (string, error) {
 		if _, ok := seen[name]; !ok {
 			r.reg.Delete(name)
 			log.Printf("removed camera %s", name)
-			removed++
+			if r.src.isAllowed(name) {
+				removed++
+			}
 		}
 	}
 
 	r.src.set(ghomeCams)
+
+	// Filter ReportState updates to exposed cameras only — HomeGraph will
+	// reject (or silently drop) entries for IDs it never received via SYNC.
+	for id := range onlineChanged {
+		if !r.src.isAllowed(id) {
+			delete(onlineChanged, id)
+		}
+	}
 
 	if r.hg != nil {
 		if added > 0 || removed > 0 {
@@ -567,7 +585,7 @@ func (r *reconciler) handleStateChange(camID string, online bool) {
 		return
 	}
 	log.Printf("camera %s (%s) -> online=%v", camID, cam.Name, online)
-	if r.hg == nil {
+	if r.hg == nil || !r.src.isAllowed(camID) {
 		return
 	}
 	states := map[string]map[string]any{camID: {"online": online}}
@@ -584,7 +602,7 @@ func (r *reconciler) handleStateChange(camID string, online bool) {
 // doorbell press. Non-doorbell cameras are ignored. Errors are logged but
 // not returned — a missed ring shouldn't crash the bridge.
 func (r *reconciler) handleRing(camID string) {
-	if r.hg == nil {
+	if r.hg == nil || !r.src.isAllowed(camID) {
 		return
 	}
 	cam, ok := r.src.snapshotMap()[camID]
@@ -622,7 +640,19 @@ type cameraSource struct {
 	rtspURLs     map[string]rtspEntry
 	lastUpdateId string
 	signaling    *api.Server
+	// allowed is the set of camera IDs the user opted in to expose via
+	// Google Home. nil means "allow all" (backward-compatible default for
+	// installs without bridge.exposed_cameras configured).
+	allowed map[string]bool
 }
+
+// errCameraNotExposed is returned by the per-camera URL helpers when the
+// camera ID is not in the configured exposure allow-list. Bubbling it out
+// of Source.SignalingURL / HLSURL / ProgressiveMP4URL turns into a
+// deviceOffline error in the ghome EXECUTE handler — a safe shape that
+// keeps the stream from leaving the LAN even if Google still has a
+// cached device entry from before the user trimmed the list.
+var errCameraNotExposed = errors.New("camera is not exposed to google home")
 
 // rtspEntry is the per-camera info the HLS muxer needs to open upstream.
 type rtspEntry struct {
@@ -678,6 +708,38 @@ func (s *cameraSource) snapshot() []ghome.Camera {
 	return out
 }
 
+// SetAllowed installs the camera-exposure allow-list. ids==nil or an empty
+// slice means "allow all cameras" (the historical behaviour). Subsequent
+// ListCameras calls and signaling URL lookups honour the new set
+// immediately, so the setup UI can hot-apply changes without restarting.
+func (s *cameraSource) SetAllowed(ids []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(ids) == 0 {
+		s.allowed = nil
+		return
+	}
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id != "" {
+			set[id] = true
+		}
+	}
+	if len(set) == 0 {
+		s.allowed = nil
+		return
+	}
+	s.allowed = set
+}
+
+// isAllowed reports whether the camera is currently exposed to Google.
+// A nil allow-list means "all cameras allowed".
+func (s *cameraSource) isAllowed(id string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.allowed == nil || s.allowed[id]
+}
+
 // snapshotMap returns the current cameras keyed by ID for diff-friendly lookup.
 func (s *cameraSource) snapshotMap() map[string]ghome.Camera {
 	s.mu.RLock()
@@ -689,17 +751,41 @@ func (s *cameraSource) snapshotMap() map[string]ghome.Camera {
 	return out
 }
 
-func (s *cameraSource) ListCameras() []ghome.Camera { return s.snapshot() }
+func (s *cameraSource) ListCameras() []ghome.Camera {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.allowed == nil {
+		out := make([]ghome.Camera, len(s.cameras))
+		copy(out, s.cameras)
+		return out
+	}
+	out := make([]ghome.Camera, 0, len(s.cameras))
+	for _, c := range s.cameras {
+		if s.allowed[c.ID] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 func (s *cameraSource) SignalingURL(camID string) (string, error) {
+	if !s.isAllowed(camID) {
+		return "", errCameraNotExposed
+	}
 	return s.signaling.SignalingURL(camID)
 }
 
 func (s *cameraSource) HLSURL(camID string) (string, error) {
+	if !s.isAllowed(camID) {
+		return "", errCameraNotExposed
+	}
 	return s.signaling.HLSURL(camID)
 }
 
 func (s *cameraSource) ProgressiveMP4URL(camID string) (string, string, error) {
+	if !s.isAllowed(camID) {
+		return "", "", errCameraNotExposed
+	}
 	return s.signaling.ProgressiveMP4URL(camID)
 }
 
@@ -724,6 +810,32 @@ func (s *cameraSource) rtspURLOf(camID string) (string, bool, bool) {
 		return "", false, false
 	}
 	return e.URL, e.VerifyTLS, true
+}
+
+// cameraApplier is the setup.CameraAllowlistApplier implementation: it
+// swaps the in-memory allow-list and, when HomeGraph is wired, fires a
+// RequestSync so Google re-pulls the SYNC device list immediately.
+type cameraApplier struct {
+	src         *cameraSource
+	hg          *ghome.HomeGraph
+	agentUserID string
+}
+
+func (a *cameraApplier) ApplyExposedCameras(ids []string) {
+	a.src.SetAllowed(ids)
+	log.Printf("camera exposure: applied allow-list of %d camera(s) (empty=all)", len(ids))
+	if a.hg == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := a.hg.RequestSync(ctx, a.agentUserID); err != nil {
+			log.Printf("camera exposure: requestSync after allow-list change: %v", err)
+			return
+		}
+		log.Printf("camera exposure: requestSync sent — Google will re-pull SYNC")
+	}()
 }
 
 // bridgeStatus is the setup.StatusProvider implementation backed by the
@@ -777,6 +889,7 @@ func (b *bridgeStatus) Status() setup.StatusSnapshot {
 			Model:    c.Model,
 			Online:   c.Online,
 			Doorbell: ghome.IsDoorbell(c),
+			Exposed:  b.src.isAllowed(c.ID),
 		})
 	}
 	// Persisted SYNC fingerprint (so the UI can confirm Google has the

@@ -242,16 +242,31 @@ function renderStatus(s) {
   } else {
     const rows = cams.map(c => `
       <tr>
-        <td>${esc(c.name)}${c.doorbell ? ' ' + pill('mute', 'doorbell') : ''}</td>
+        <td><label style="font-weight:400; display:flex; align-items:center; gap:.4rem; margin:0">
+          <input type="checkbox" class="cam-expose" data-id="${esc(c.id)}" ${c.exposed ? 'checked' : ''}>
+          ${esc(c.name)}${c.doorbell ? ' ' + pill('mute', 'doorbell') : ''}
+        </label></td>
         <td>${esc(c.model || '')}</td>
         <td>${c.online ? pill('ok', 'online') : pill('err', 'offline')}</td>
+        <td>${c.exposed ? pill('ok', 'exposed') : pill('mute', 'hidden')}</td>
         <td><code style="font-size:.75rem">${esc(c.id)}</code></td>
       </tr>`).join('');
+    const exposedCount = cams.filter(c => c.exposed).length;
     camsBody = `
+      <p class="muted" style="margin-top:0">
+        Uncheck a camera to hide it from Google Home. Hidden cameras are removed from the SYNC device list, return offline in QUERY, and are refused at EXECUTE — their video never leaves the LAN.
+        ${exposedCount === cams.length ? '<br><strong>All cameras are currently exposed.</strong>' : `<br><strong>${exposedCount} of ${cams.length} camera(s) exposed.</strong>`}
+      </p>
       <table>
-        <thead><tr><th>Name</th><th>Model</th><th>State</th><th>ID</th></tr></thead>
+        <thead><tr><th>Name</th><th>Model</th><th>State</th><th>Exposure</th><th>ID</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>`;
+      </table>
+      <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap">
+        <button id="saveCamsBtn" class="primary">Save exposure</button>
+        <button id="selectAllBtn">Select all</button>
+        <button id="selectNoneBtn">Select none</button>
+        <span id="camsSaveResult" class="muted"></span>
+      </div>`;
   }
   const camsCard = `
     <div class="card">
@@ -293,6 +308,51 @@ function renderStatus(s) {
     </div>`;
 
   $('statusPanel').innerHTML = uniFiCard + camsCard + googleCard + bridgeCard;
+  wireCameraExposureControls(cams);
+}
+
+function wireCameraExposureControls(cams) {
+  const saveBtn = document.getElementById('saveCamsBtn');
+  if (!saveBtn) return;
+  const result = document.getElementById('camsSaveResult');
+  const all = document.getElementById('selectAllBtn');
+  const none = document.getElementById('selectNoneBtn');
+  const boxes = () => document.querySelectorAll('.cam-expose');
+  if (all) all.onclick = () => { boxes().forEach(b => b.checked = true); };
+  if (none) none.onclick = () => { boxes().forEach(b => b.checked = false); };
+  saveBtn.onclick = async () => {
+    saveBtn.disabled = true;
+    if (result) result.textContent = 'Saving\u2026';
+    const ids = Array.from(boxes()).filter(b => b.checked).map(b => b.dataset.id);
+    // Note: an empty list means "all cameras allowed" on the backend, which
+    // would surprise a user who unchecked everything to disable Google
+    // playback entirely. Detect the all-unchecked case and confirm.
+    if (ids.length === 0 && cams.length > 0) {
+      if (!confirm('No cameras selected. Saving an empty list will re-enable all cameras (backward-compatible default). To hide ALL cameras, keep one selected and unlink the integration in the Google Home app instead. Continue?')) {
+        saveBtn.disabled = false;
+        if (result) result.textContent = '';
+        return;
+      }
+    }
+    try {
+      const r = await fetch(API + '/cameras', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exposed_camera_ids: ids }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        if (result) result.textContent = 'Saved. Google will re-sync momentarily.';
+        setTimeout(refreshStatus, 800);
+      } else {
+        if (result) result.textContent = 'Error: ' + (j.error || 'save failed');
+        saveBtn.disabled = false;
+      }
+    } catch (e) {
+      if (result) result.textContent = 'Error: ' + e.message;
+      saveBtn.disabled = false;
+    }
+  };
 }
 
 $('refreshBtn').onclick = refreshStatus;
