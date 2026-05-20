@@ -49,6 +49,9 @@ type Server struct {
 	// nil when the bridge is in setup-only mode — the /api/cameras handler
 	// then persists the change for the next restart.
 	applier atomic.Value // holds applierBox
+	// wsLogApplier hot-applies bridge.ws_event_log changes to the running
+	// reconciler. nil in setup-only mode.
+	wsLogApplier atomic.Value // holds wsLogApplierBox
 }
 
 // SetStatus registers a live status provider. Safe to call concurrently
@@ -69,11 +72,23 @@ func (s *Server) SetCameraApplier(a CameraAllowlistApplier) {
 	s.applier.Store(applierBox{a})
 }
 
+// SetWSLogApplier registers the live ws-event-log-level applier. Safe to
+// call concurrently with HTTP handlers.
+func (s *Server) SetWSLogApplier(a WSLogApplier) {
+	if s == nil {
+		return
+	}
+	s.wsLogApplier.Store(wsLogApplierBox{a})
+}
+
 // statusBox lets us store a typed nil through atomic.Value without panic.
 type statusBox struct{ p StatusProvider }
 
 // applierBox is the same trick as statusBox, for CameraAllowlistApplier.
 type applierBox struct{ a CameraAllowlistApplier }
+
+// wsLogApplierBox boxes a WSLogApplier so atomic.Value can carry a typed nil.
+type wsLogApplierBox struct{ a WSLogApplier }
 
 func (s *Server) loadStatus() StatusProvider {
 	v, _ := s.status.Load().(statusBox)
@@ -82,6 +97,11 @@ func (s *Server) loadStatus() StatusProvider {
 
 func (s *Server) loadApplier() CameraAllowlistApplier {
 	v, _ := s.applier.Load().(applierBox)
+	return v.a
+}
+
+func (s *Server) loadWSLogApplier() WSLogApplier {
+	v, _ := s.wsLogApplier.Load().(wsLogApplierBox)
 	return v.a
 }
 
@@ -110,6 +130,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/validate", s.validateHandler)
 	mux.HandleFunc("/api/save", s.saveHandler)
 	mux.HandleFunc("/api/cameras", s.camerasHandler)
+	mux.HandleFunc("/api/log-settings", s.logSettingsHandler)
 	return mux
 }
 
@@ -448,3 +469,83 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // ErrSupervisorUnavailable indicates the running process has no $SUPERVISOR_TOKEN.
 var ErrSupervisorUnavailable = errors.New("supervisor token not set")
+
+// logSettingsRequest is the body of POST /api/log-settings. WSEventLog
+// is one of "off", "interesting", "all". Empty or unknown values fall
+// back to "interesting" on both the persistence and the apply path.
+type logSettingsRequest struct {
+	WSEventLog string `json:"ws_event_log"`
+}
+
+type logSettingsResponse struct {
+	OK         bool   `json:"ok"`
+	WSEventLog string `json:"ws_event_log,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// logSettingsHandler persists bridge.ws_event_log via the Supervisor
+// options API and hot-applies it to the running bridge. No restart.
+func (s *Server) logSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req logSettingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, logSettingsResponse{Error: "bad request: " + err.Error()})
+		return
+	}
+	level := normalizeWSEventLog(req.WSEventLog)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	if err := s.writeWSEventLog(ctx, level); err != nil {
+		writeJSON(w, http.StatusInternalServerError, logSettingsResponse{Error: err.Error()})
+		return
+	}
+	if a := s.loadWSLogApplier(); a != nil {
+		a.ApplyWSEventLog(level)
+	}
+	writeJSON(w, http.StatusOK, logSettingsResponse{OK: true, WSEventLog: level})
+}
+
+// normalizeWSEventLog clamps an arbitrary user input to one of the three
+// valid values. Empty / unknown -> "interesting".
+func normalizeWSEventLog(s string) string {
+	switch s {
+	case "off", "all":
+		return s
+	default:
+		return "interesting"
+	}
+}
+
+// writeWSEventLog merges bridge.ws_event_log into the current add-on
+// options via the Supervisor REST API. Same shape as writeExposedCameras.
+func (s *Server) writeWSEventLog(ctx context.Context, level string) error {
+	info, err := s.supervisorJSON(ctx, http.MethodGet, "/addons/self/info", nil)
+	if err != nil {
+		return fmt.Errorf("supervisor info: %w", err)
+	}
+	data, _ := info["data"].(map[string]any)
+	opts, _ := data["options"].(map[string]any)
+	if opts == nil {
+		opts = map[string]any{}
+	}
+	bridgeOpts, _ := opts["bridge"].(map[string]any)
+	if bridgeOpts == nil {
+		bridgeOpts = map[string]any{}
+	}
+	bridgeOpts["ws_event_log"] = level
+	if v, ok := bridgeOpts["public_base_url"].(string); ok && v == "" {
+		delete(bridgeOpts, "public_base_url")
+	}
+	opts["bridge"] = bridgeOpts
+
+	body, _ := json.Marshal(map[string]any{"options": opts})
+	if _, err := s.supervisorJSON(ctx, http.MethodPost, "/addons/self/options", body); err != nil {
+		return fmt.Errorf("save options: %w", err)
+	}
+	return nil
+}

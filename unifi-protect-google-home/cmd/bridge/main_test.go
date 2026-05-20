@@ -158,3 +158,57 @@ func TestCameraSourceAllowList(t *testing.T) {
 		t.Fatalf("blank-only: ListCameras=%d, want 3", got)
 	}
 }
+
+// TestWSHasInterestingField verifies the bridge.ws_event_log "interesting"
+// filter: only frames carrying a field the bridge actually reacts to
+// should pass through, so high-frequency telemetry noise (uptime,
+// lastSeen, stats, phyRate, nvrMac, …) is dropped.
+func TestWSHasInterestingField(t *testing.T) {
+	mk := func(keys ...string) map[string]json.RawMessage {
+		m := map[string]json.RawMessage{}
+		for _, k := range keys {
+			m[k] = json.RawMessage("null")
+		}
+		return m
+	}
+	cases := []struct {
+		name string
+		in   map[string]json.RawMessage
+		want bool
+	}{
+		{"telemetry only", mk("phyRate", "wifiConnectionState", "stats", "nvrMac"), false},
+		{"uptime/lastSeen", mk("uptime", "lastSeen", "uplinkDevice"), false},
+		{"motion", mk("isMotionDetected", "lastMotion", "nvrMac"), true},
+		{"ring", mk("lastRing", "nvrMac"), true},
+		{"connectivity state", mk("state", "uptime"), true},
+		{"isConnected", mk("isConnected"), true},
+		{"name change", mk("name"), true},
+		{"channels change", mk("channels"), true},
+		{"empty", mk(), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := wsHasInterestingField(tc.in); got != tc.want {
+				t.Fatalf("got=%v want=%v fields=%v", got, tc.want, tc.in)
+			}
+		})
+	}
+}
+
+func TestWSLogLevelFromString(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want int32
+	}{
+		{"off", wsLogOff},
+		{"OFF", wsLogOff},
+		{"interesting", wsLogInteresting},
+		{"all", wsLogAll},
+		{"", wsLogInteresting},
+		{"bogus", wsLogInteresting},
+	} {
+		if got := wsLogLevelFromString(tc.in); got != tc.want {
+			t.Fatalf("wsLogLevelFromString(%q)=%d want=%d", tc.in, got, tc.want)
+		}
+	}
+}

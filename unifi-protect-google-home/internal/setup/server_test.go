@@ -305,3 +305,83 @@ func TestCameras_EmptyListAllowsAll(t *testing.T) {
 		t.Fatalf("applier got %v, want empty", app.lastIDs)
 	}
 }
+
+// fakeWSLogApplier captures ApplyWSEventLog calls so we can assert the
+// /api/log-settings handler invokes the hot-apply path.
+type fakeWSLogApplier struct {
+	mu       sync.Mutex
+	called   bool
+	lastLevel string
+}
+
+func (f *fakeWSLogApplier) ApplyWSEventLog(level string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.called = true
+	f.lastLevel = level
+}
+
+func TestLogSettings_PersistsAndApplies(t *testing.T) {
+	sup := newFakeSupervisor(t)
+	defer sup.close()
+	s := newTestServer(sup)
+	app := &fakeWSLogApplier{}
+	s.SetWSLogApplier(app)
+
+	body, _ := json.Marshal(logSettingsRequest{WSEventLog: "off"})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/log-settings", bytes.NewReader(body)))
+
+	if rr.Code != 200 {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp logSettingsResponse
+	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
+	if !resp.OK || resp.WSEventLog != "off" {
+		t.Fatalf("response=%+v", resp)
+	}
+
+	sup.mu.Lock()
+	saved, _ := sup.savedOpts["bridge"].(map[string]any)
+	got, _ := saved["ws_event_log"].(string)
+	sup.mu.Unlock()
+	if got != "off" {
+		t.Fatalf("supervisor saw ws_event_log=%q, want off", got)
+	}
+
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if !app.called || app.lastLevel != "off" {
+		t.Fatalf("applier got %q, want off", app.lastLevel)
+	}
+	sup.mu.Lock()
+	defer sup.mu.Unlock()
+	if sup.restarted {
+		t.Fatalf("add-on was restarted; expected hot-apply path")
+	}
+}
+
+func TestLogSettings_NormalizesUnknownLevel(t *testing.T) {
+	sup := newFakeSupervisor(t)
+	defer sup.close()
+	s := newTestServer(sup)
+	app := &fakeWSLogApplier{}
+	s.SetWSLogApplier(app)
+
+	body, _ := json.Marshal(logSettingsRequest{WSEventLog: "bogus"})
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/log-settings", bytes.NewReader(body)))
+	if rr.Code != 200 {
+		t.Fatalf("status=%d", rr.Code)
+	}
+	sup.mu.Lock()
+	saved, _ := sup.savedOpts["bridge"].(map[string]any)
+	got, _ := saved["ws_event_log"].(string)
+	sup.mu.Unlock()
+	if got != "interesting" {
+		t.Fatalf("supervisor saw ws_event_log=%q, want interesting", got)
+	}
+	if app.lastLevel != "interesting" {
+		t.Fatalf("applier got %q, want interesting", app.lastLevel)
+	}
+}

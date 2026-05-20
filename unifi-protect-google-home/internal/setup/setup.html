@@ -296,6 +296,8 @@ function renderStatus(s) {
   // --- Bridge card ---
   const b = s.bridge || {};
   const bPill = b.public_url_set ? pill('ok', 'public URL set') : pill('warn', 'no public URL');
+  const wsLogCurrent = b.ws_event_log || 'interesting';
+  const wsOpt = (v, label) => `<option value="${v}"${v === wsLogCurrent ? ' selected' : ''}>${label}</option>`;
   const bridgeCard = `
     <div class="card">
       <h3>Bridge ${bPill}</h3>
@@ -305,10 +307,49 @@ function renderStatus(s) {
         ${row('Agent user ID', b.agent_user_id ? `<code>${esc(b.agent_user_id)}</code>` : '')}
         ${row('SYNC fingerprint', b.sync_state_known ? `<code>${esc((b.sync_fingerprint||'').slice(0,12))}\u2026</code> ${pill('ok','persisted')}` : pill('mute', 'not yet sent'))}
       </dl>
+      <div style="margin-top:.75rem; display:flex; gap:.5rem; align-items:center; flex-wrap:wrap">
+        <label for="wsLogSelect" style="margin:0; font-weight:600">Protect WS event log</label>
+        <select id="wsLogSelect">
+          ${wsOpt('off', 'Off — no per-camera ws lines')}
+          ${wsOpt('interesting', 'Interesting only — ring / motion / online / name (default)')}
+          ${wsOpt('all', 'All — every frame (verbose, for diagnosing firmware regressions)')}
+        </select>
+        <button id="saveWsLogBtn" class="primary">Apply</button>
+        <span id="wsLogSaveResult" class="muted"></span>
+      </div>
     </div>`;
 
   $('statusPanel').innerHTML = uniFiCard + camsCard + googleCard + bridgeCard;
   wireCameraExposureControls(cams);
+  wireWSLogControls();
+}
+
+function wireWSLogControls() {
+  const btn = document.getElementById('saveWsLogBtn');
+  if (!btn) return;
+  const sel = document.getElementById('wsLogSelect');
+  const result = document.getElementById('wsLogSaveResult');
+  btn.onclick = async () => {
+    btn.disabled = true;
+    if (result) result.textContent = 'Saving\u2026';
+    try {
+      const r = await fetch(API + '/log-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ws_event_log: sel.value }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        if (result) result.textContent = 'Applied (' + (j.ws_event_log || sel.value) + ').';
+      } else {
+        if (result) result.textContent = 'Error: ' + (j.error || 'save failed');
+      }
+    } catch (e) {
+      if (result) result.textContent = 'Error: ' + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  };
 }
 
 function wireCameraExposureControls(cams) {

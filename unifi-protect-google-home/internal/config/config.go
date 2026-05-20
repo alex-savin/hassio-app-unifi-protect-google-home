@@ -47,6 +47,16 @@ type Bridge struct {
 	// Cameras not in the list are hidden from SYNC, return online=false
 	// in QUERY, and EXECUTE rejects GetCameraStream for them.
 	ExposedCameras []string `json:"exposed_cameras,omitempty"`
+	// WSEventLog controls how chatty the Protect websocket logger is.
+	// One of "off", "interesting" (default), "all".
+	//   - off: never log per-camera ws events.
+	//   - interesting: only log events that contain a field the bridge
+	//     actually reacts to (state, isConnected, isAdopted, name,
+	//     channels, lastRing, lastMotion, isMotionDetected). Filters out
+	//     pure telemetry noise like uptime/lastSeen/phyRate/stats/nvrMac.
+	//   - all: log every camera ws frame (legacy behavior, useful when
+	//     diagnosing a regression on new firmware).
+	WSEventLog string `json:"ws_event_log,omitempty"`
 }
 
 // HomeGraphEnabled returns true unless the option is explicitly set to false.
@@ -87,6 +97,14 @@ func LoadPartial(path string) (*Config, error) {
 	}
 	if c.Bridge.LogLevel == "" {
 		c.Bridge.LogLevel = "info"
+	}
+	switch c.Bridge.WSEventLog {
+	case "":
+		c.Bridge.WSEventLog = "interesting"
+	case "off", "interesting", "all":
+		// ok
+	default:
+		c.Bridge.WSEventLog = "interesting"
 	}
 	return &c, nil
 }

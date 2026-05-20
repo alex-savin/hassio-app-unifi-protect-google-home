@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -158,6 +159,8 @@ func run() int {
 		agentUserID: cfg.Bridge.AgentUserID,
 		verifyTLS:   cfg.UniFi.VerifyTLS,
 	}
+	rec.wsLogLevel.Store(wsLogLevelFromString(cfg.Bridge.WSEventLog))
+	log.Printf("protect ws: event log level = %s", wsLogLevelString(rec.wsLogLevel.Load()))
 
 	if _, err := rec.refresh(ctx); err != nil {
 		log.Printf("initial bootstrap: %v", err)
@@ -201,6 +204,7 @@ func run() int {
 			syncStatePath: syncStatePath,
 		})
 		setupSrv.SetCameraApplier(&cameraApplier{src: src, hg: hg, agentUserID: cfg.Bridge.AgentUserID})
+		setupSrv.SetWSLogApplier(&wsLogApplier{rec: rec, cfg: cfg})
 	}
 
 	go rec.poll(ctx)
@@ -266,6 +270,65 @@ type reconciler struct {
 	hg          *ghome.HomeGraph
 	agentUserID string
 	verifyTLS   bool
+	// wsLogLevel is one of wsLogOff/wsLogInteresting/wsLogAll. Stored as
+	// int32 so the per-event hot path can read it without locks.
+	wsLogLevel atomic.Int32
+}
+
+// Protect WS log verbosity levels. Persisted in bridge.ws_event_log and
+// hot-applied via setup.WSLogApplier.
+const (
+	wsLogOff         int32 = 0
+	wsLogInteresting int32 = 1
+	wsLogAll         int32 = 2
+)
+
+// wsLogLevelFromString parses a user-facing value. Falls back to
+// "interesting" for empty/unknown input — matches config.Load defaults.
+func wsLogLevelFromString(s string) int32 {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "off":
+		return wsLogOff
+	case "all":
+		return wsLogAll
+	default:
+		return wsLogInteresting
+	}
+}
+
+func wsLogLevelString(v int32) string {
+	switch v {
+	case wsLogOff:
+		return "off"
+	case wsLogAll:
+		return "all"
+	default:
+		return "interesting"
+	}
+}
+
+// wsInterestingFields is the set of Protect camera fields the bridge
+// actually reacts to (ring, motion, online state, name/channels). All
+// other fields are pure telemetry noise (uptime, lastSeen, phyRate,
+// stats, nvrMac, uplinkDevice, isRecording, …) that we never act on.
+var wsInterestingFields = map[string]struct{}{
+	"state":             {},
+	"isConnected":       {},
+	"isAdopted":         {},
+	"name":              {},
+	"channels":          {},
+	"lastRing":          {},
+	"lastMotion":        {},
+	"isMotionDetected":  {},
+}
+
+func wsHasInterestingField(fields map[string]json.RawMessage) bool {
+	for k := range fields {
+		if _, ok := wsInterestingFields[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // syncStateFile is the on-disk shape of the persisted SYNC fingerprint.
@@ -404,11 +467,14 @@ func (r *reconciler) watchEvents(ctx context.Context, fire func()) {
 				continue
 			}
 			if ev.Action == "update" || ev.Action == "add" {
-				keys := make([]string, 0, len(ev.Fields))
-				for k := range ev.Fields {
-					keys = append(keys, k)
+				lvl := r.wsLogLevel.Load()
+				if lvl == wsLogAll || (lvl == wsLogInteresting && wsHasInterestingField(ev.Fields)) {
+					keys := make([]string, 0, len(ev.Fields))
+					for k := range ev.Fields {
+						keys = append(keys, k)
+					}
+					log.Printf("protect ws: camera %s action=%s fields=%v", ev.ID, ev.Action, keys)
 				}
-				log.Printf("protect ws: camera %s action=%s fields=%v", ev.ID, ev.Action, keys)
 			}
 			// Detect doorbell ring events. Protect signals these as an
 			// update to the camera's `lastRing` field (an epoch-ms
@@ -838,6 +904,23 @@ func (a *cameraApplier) ApplyExposedCameras(ids []string) {
 	}()
 }
 
+// wsLogApplier is the setup.WSLogApplier implementation: it swaps the
+// reconciler's ws-event log level under sync/atomic so the change takes
+// effect on the very next websocket frame, no restart needed.
+type wsLogApplier struct {
+	rec *reconciler
+	cfg *config.Config
+}
+
+func (a *wsLogApplier) ApplyWSEventLog(level string) {
+	v := wsLogLevelFromString(level)
+	a.rec.wsLogLevel.Store(v)
+	if a.cfg != nil {
+		a.cfg.Bridge.WSEventLog = wsLogLevelString(v)
+	}
+	log.Printf("protect ws: event log level changed to %s", wsLogLevelString(v))
+}
+
 // bridgeStatus is the setup.StatusProvider implementation backed by the
 // running bridge. Every call materialises a fresh snapshot from the live
 // cameraSource and config so the ingress UI shows up-to-date data.
@@ -868,6 +951,7 @@ func (b *bridgeStatus) Status() setup.StatusSnapshot {
 			PublicURLSet:  b.cfg.Bridge.PublicBaseURL != "",
 			AgentUserID:   b.cfg.Bridge.AgentUserID,
 			ListenAddr:    b.cfg.Bridge.ListenAddr,
+			WSEventLog:    b.cfg.Bridge.WSEventLog,
 		},
 		Google: setup.GoogleStatus{
 			HomeGraphEnabled:    b.cfg.Google.HomeGraphEnabled(),

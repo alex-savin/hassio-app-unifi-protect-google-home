@@ -62,6 +62,9 @@ type BridgeStatus struct {
 	ListenAddr     string `json:"listen_addr,omitempty"`
 	SyncStateKnown bool   `json:"sync_state_known"`
 	SyncFingerprint string `json:"sync_fingerprint,omitempty"`
+	// WSEventLog mirrors the live bridge.ws_event_log setting so the UI
+	// can pre-select the dropdown. One of "off", "interesting", "all".
+	WSEventLog string `json:"ws_event_log,omitempty"`
 }
 
 // StatusProvider is implemented by the bridge to expose live runtime state
@@ -81,4 +84,12 @@ type StatusProvider interface {
 // of the setup server, not the applier.
 type CameraAllowlistApplier interface {
 	ApplyExposedCameras(ids []string)
+}
+
+// WSLogApplier is implemented by the running bridge so the setup UI can
+// change bridge.ws_event_log (Protect websocket log verbosity) without
+// a restart. Level is one of "off", "interesting", "all"; unknown values
+// fall back to "interesting".
+type WSLogApplier interface {
+	ApplyWSEventLog(level string)
 }

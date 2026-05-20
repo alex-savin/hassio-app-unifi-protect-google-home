@@ -1,6 +1,6 @@
 ---
 name: "UniFi Protect → Google Home"
-version: "0.3.26"
+version: "0.3.27"
 slug: "unifi-protect-google-home"
 description: >-
   Bridge UniFi Protect cameras to Google Home via WebRTC (Cloud-to-Cloud CameraStream).
@@ -48,6 +48,7 @@ options:
     agent_user_id: "unifi-protect-bridge"
     log_level: "info"
     exposed_cameras: []
+    ws_event_log: "interesting"
 schema:
   unifi:
     host: str
@@ -69,4 +70,5 @@ schema:
     log_level: "list(debug|info|warn|error)?"
     exposed_cameras:
       - str?
+    ws_event_log: "list(off|interesting|all)?"
 image: "ghcr.io/alex-savin/unifi-protect-google-home"
