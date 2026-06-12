@@ -5,14 +5,14 @@ go 1.26.0
 require (
 	github.com/bluenviron/gohlslib/v2 v2.3.2
 	github.com/bluenviron/gortsplib/v4 v4.16.2
-	github.com/bluenviron/mediacommon/v2 v2.8.3
+	github.com/bluenviron/mediacommon/v2 v2.9.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/pion/rtp v1.10.2
 	github.com/pion/webrtc/v4 v4.2.12
 )
 
 require (
-	github.com/abema/go-mp4 v1.5.0 // indirect
+	github.com/abema/go-mp4 v1.6.0 // indirect
 	github.com/asticode/go-astikit v0.30.0 // indirect
 	github.com/asticode/go-astits v1.15.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
