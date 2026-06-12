@@ -56,11 +56,11 @@ type GoogleStatus struct {
 
 // BridgeStatus carries bridge-level options that affect Google reachability.
 type BridgeStatus struct {
-	PublicBaseURL  string `json:"public_base_url,omitempty"`
-	PublicURLSet   bool   `json:"public_url_set"`
-	AgentUserID    string `json:"agent_user_id,omitempty"`
-	ListenAddr     string `json:"listen_addr,omitempty"`
-	SyncStateKnown bool   `json:"sync_state_known"`
+	PublicBaseURL   string `json:"public_base_url,omitempty"`
+	PublicURLSet    bool   `json:"public_url_set"`
+	AgentUserID     string `json:"agent_user_id,omitempty"`
+	ListenAddr      string `json:"listen_addr,omitempty"`
+	SyncStateKnown  bool   `json:"sync_state_known"`
 	SyncFingerprint string `json:"sync_fingerprint,omitempty"`
 	// WSEventLog mirrors the live bridge.ws_event_log setting so the UI
 	// can pre-select the dropdown. One of "off", "interesting", "all".

@@ -92,7 +92,18 @@ func (m *Muxer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "stream warming up", http.StatusServiceUnavailable)
 		return
 	}
-	m.hlsMux.Handle(w, r)
+	// Snapshot under the lock: stopLocked may nil out m.hlsMux between
+	// ensureStarted returning and the request being handled (e.g. the
+	// camera dropped mid-flight). gohlslib's Handle is safe on a closed
+	// muxer, but not on a nil one.
+	m.mu.Lock()
+	h := m.hlsMux
+	m.mu.Unlock()
+	if h == nil {
+		http.Error(w, "stream restarting", http.StatusServiceUnavailable)
+		return
+	}
+	h.Handle(w, r)
 }
 
 // waitFirstSegment polls hlsMux by issuing a HEAD-style attempt — gohlslib
@@ -214,7 +225,8 @@ func (m *Muxer) startLocked() error {
 	pps := videoFormat.PPS
 
 	var (
-		firstTS   uint32
+		lastRawTS uint32
+		pts       int64
 		haveFirst bool
 	)
 
@@ -229,12 +241,15 @@ func (m *Muxer) startLocked() error {
 		}
 		au = injectParamSets(au, sps, pps)
 
+		// PTS in the track clock rate (90 kHz). Accumulating signed deltas
+		// keeps it monotonic across the 32-bit RTP timestamp wrap (~6.6 h),
+		// where a plain int32 cast of (ts - firstTS) would jump negative.
 		if !haveFirst {
-			firstTS = pkt.Timestamp
+			lastRawTS = pkt.Timestamp
 			haveFirst = true
 		}
-		// PTS in the track clock rate (90 kHz); signed delta handles wrap.
-		pts := int64(int32(pkt.Timestamp - firstTS)) //nolint:gosec
+		pts += int64(int32(pkt.Timestamp - lastRawTS)) //nolint:gosec
+		lastRawTS = pkt.Timestamp
 		if err := hlsMux.WriteH264(track, time.Now(), pts, au); err != nil {
 			log.Printf("hls[%s] write: %v", m.StreamID, err)
 		}
@@ -288,13 +303,21 @@ func (m *Muxer) runIdleWatchdog(ctx context.Context) {
 			return
 		case <-tick.C:
 			last := time.Unix(0, m.lastAccessNs.Load())
-			if time.Since(last) > idleTimeout {
-				m.mu.Lock()
-				if m.started && time.Since(time.Unix(0, m.lastAccessNs.Load())) > idleTimeout {
-					log.Printf("hls[%s] idle %s — stopping upstream", m.StreamID, idleTimeout)
-					m.stopLocked()
-				}
-				m.mu.Unlock()
+			if time.Since(last) <= idleTimeout {
+				continue
+			}
+			m.mu.Lock()
+			stopped := false
+			if m.started && time.Since(time.Unix(0, m.lastAccessNs.Load())) > idleTimeout {
+				log.Printf("hls[%s] idle %s — stopping upstream", m.StreamID, idleTimeout)
+				m.stopLocked()
+				stopped = true
+			}
+			m.mu.Unlock()
+			// Only exit once the session is actually stopped — a request may
+			// have refreshed lastAccessNs between the unlocked check and the
+			// lock, in which case this watchdog must keep watching.
+			if stopped {
 				return
 			}
 		}

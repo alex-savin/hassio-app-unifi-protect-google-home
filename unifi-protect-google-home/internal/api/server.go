@@ -2,7 +2,6 @@
 package api
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -15,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/discovery"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/ghome"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/hls"
 	mp4srv "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/mp4"
@@ -24,11 +22,11 @@ import (
 	wrtc "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/webrtc"
 )
 
-// DiscoverFunc runs a UBNT UDP discovery scan and returns the result.
-// Indirected so tests don't actually open sockets.
-type DiscoverFunc func(ctx context.Context) ([]discovery.Device, error)
-
-// Server hosts every public HTTP endpoint.
+// Server hosts every public HTTP endpoint. Everything mounted here is
+// reachable from the internet (the user reverse-proxies this listener so
+// Google can call the fulfillment URL), so each route must either be
+// authenticated or carry an HMAC-signed token. LAN-only conveniences like
+// the discovery scan live on the ingress-only setup server instead.
 type Server struct {
 	PublicBaseURL     string
 	StreamTokenSecret []byte
@@ -39,9 +37,6 @@ type Server struct {
 	WebRTC   *wrtc.Factory
 	HLS      *hls.Server
 	MP4      *mp4srv.Server
-
-	// Discover, when non-nil, enables GET /admin/discover.
-	Discover DiscoverFunc
 }
 
 // Routes returns an http.Handler with all endpoints mounted.
@@ -60,33 +55,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
-	if s.Discover != nil {
-		mux.HandleFunc("/admin/discover", s.discoverHandler)
-	}
 	return mux
-}
-
-// discoverHandler runs a UBNT discovery scan and returns the result as JSON.
-// Exposes only LAN-visible metadata (IP/MAC/hostname/model) so it is not
-// authenticated — anyone with network access to the bridge already has the
-// same view via a raw UDP broadcast.
-func (s *Server) discoverHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	devices, err := s.Discover(ctx)
-	if err != nil {
-		http.Error(w, "discover: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if devices == nil {
-		devices = []discovery.Device{}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"devices": devices})
 }
 
 // authMiddleware validates the OAuth bearer token Google sends on fulfillment.

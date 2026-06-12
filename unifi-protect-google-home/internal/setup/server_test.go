@@ -309,8 +309,8 @@ func TestCameras_EmptyListAllowsAll(t *testing.T) {
 // fakeWSLogApplier captures ApplyWSEventLog calls so we can assert the
 // /api/log-settings handler invokes the hot-apply path.
 type fakeWSLogApplier struct {
-	mu       sync.Mutex
-	called   bool
+	mu        sync.Mutex
+	called    bool
 	lastLevel string
 }
 

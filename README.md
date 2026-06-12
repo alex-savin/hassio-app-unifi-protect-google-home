@@ -104,7 +104,8 @@ fulfillment), but purpose-built for the UniFi Protect ↔ Google Home pair.
 ## Public reachability
 
 Google must reach your fulfillment URL over the public internet. The add-on
-listens inside the HA network on `0.0.0.0:8099`; expose it via the same
+listens inside the container on `0.0.0.0:8099`, mapped to host port
+`8199` by default; expose that host port via the same
 external URL Home Assistant is already using (Nabu Casa, your own domain
 behind nginx/Caddy/Traefik, etc.).
 
@@ -113,7 +114,7 @@ Reverse-proxy rule (Caddy example):
 ```caddy
 your-ha-domain.example.com {
     handle_path /protect-gh/* {
-        reverse_proxy http://homeassistant.local:8099
+        reverse_proxy http://homeassistant.local:8199
     }
 }
 ```
@@ -203,7 +204,7 @@ google:
 bridge:
   public_base_url: "https://your-ha-domain.example.com/protect-gh"
   listen_addr: "0.0.0.0:8099"
-  stream_token_secret: "…another-long-random…"  # signs per-request signaling URLs
+  stream_token_secret: ""  # leave blank: a strong secret is auto-generated and persisted
   consent_password: "…the password you'll type when linking…"
   agent_user_id: "unifi-protect-bridge"
 ```

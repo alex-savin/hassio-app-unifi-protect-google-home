@@ -1,4 +1,4 @@
-package main
+package bridge
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ import (
 // reported as "changed" so the Test Suite OnlineOffline check observes
 // online=false AND online=true within milliseconds of the Protect WS event.
 func TestCameraSourceSetOnline(t *testing.T) {
-	s := &cameraSource{}
+	s := &CameraSource{}
 	s.set([]ghome.Camera{
 		{ID: "cam-1", Name: "Front", Online: true},
 		{ID: "cam-2", Name: "Side", Online: true},
@@ -57,9 +57,9 @@ func TestCameraSourceSetOnline(t *testing.T) {
 // when no HomeGraph client is configured (e.g. local-only dev mode) and
 // still updates the snapshot so QUERY can return fresh data.
 func TestHandleStateChangeNoHomeGraph(t *testing.T) {
-	src := &cameraSource{}
+	src := &CameraSource{}
 	src.set([]ghome.Camera{{ID: "cam-1", Name: "Front", Online: true}})
-	r := &reconciler{src: src, hg: nil}
+	r := &Reconciler{src: src, hg: nil}
 
 	r.handleStateChange("cam-1", false)
 	if got := src.snapshotMap()["cam-1"].Online; got != false {
@@ -105,7 +105,7 @@ func TestDecodeOnline(t *testing.T) {
 // cameras that are not in the allow-list. nil/empty allow-list means
 // "all cameras allowed" for backward compatibility.
 func TestCameraSourceAllowList(t *testing.T) {
-	s := &cameraSource{}
+	s := &CameraSource{}
 	s.set([]ghome.Camera{
 		{ID: "cam-1", Name: "Front", Online: true},
 		{ID: "cam-2", Name: "Back", Online: true},
@@ -116,7 +116,7 @@ func TestCameraSourceAllowList(t *testing.T) {
 	if got := len(s.ListCameras()); got != 3 {
 		t.Fatalf("default: ListCameras=%d, want 3", got)
 	}
-	if !s.isAllowed("cam-1") || !s.isAllowed("cam-2") {
+	if !s.IsAllowed("cam-1") || !s.IsAllowed("cam-2") {
 		t.Fatalf("default: every camera must report allowed")
 	}
 
@@ -131,7 +131,7 @@ func TestCameraSourceAllowList(t *testing.T) {
 			t.Fatalf("cam-2 leaked through filter: %+v", cams)
 		}
 	}
-	if s.isAllowed("cam-2") {
+	if s.IsAllowed("cam-2") {
 		t.Fatalf("cam-2 must be reported as not allowed")
 	}
 
@@ -144,6 +144,17 @@ func TestCameraSourceAllowList(t *testing.T) {
 	}
 	if _, _, err := s.ProgressiveMP4URL("cam-2"); err == nil {
 		t.Fatalf("ProgressiveMP4URL(cam-2): expected error for hidden camera")
+	}
+
+	// The serving-time gate also refuses hidden cameras, even when an RTSP
+	// URL is registered (covers already-issued HLS/MP4 stream URLs).
+	s.setRTSPURL("cam-2", "rtsps://nvr:7441/alias", false)
+	if _, _, ok := s.RTSPURLOf("cam-2"); ok {
+		t.Fatalf("RTSPURLOf(cam-2): hidden camera must resolve as unknown")
+	}
+	s.setRTSPURL("cam-1", "rtsps://nvr:7441/alias1", true)
+	if url, verify, ok := s.RTSPURLOf("cam-1"); !ok || url == "" || !verify {
+		t.Fatalf("RTSPURLOf(cam-1): got (%q,%v,%v), want allowed camera to resolve", url, verify, ok)
 	}
 
 	// Empty list resets to allow-all.
@@ -210,5 +221,43 @@ func TestWSLogLevelFromString(t *testing.T) {
 		if got := wsLogLevelFromString(tc.in); got != tc.want {
 			t.Fatalf("wsLogLevelFromString(%q)=%d want=%d", tc.in, got, tc.want)
 		}
+	}
+}
+
+// TestDeriveKeyDomainSeparation locks the property the key split exists
+// for: distinct labels yield distinct keys from the same master.
+func TestDeriveKeyDomainSeparation(t *testing.T) {
+	master := []byte("0123456789abcdef0123456789abcdef")
+	a := DeriveKey(master, "oauth-tokens-v1")
+	b := DeriveKey(master, "stream-urls-v1")
+	if len(a) != 32 || len(b) != 32 {
+		t.Fatalf("derived key lengths: %d, %d (want 32)", len(a), len(b))
+	}
+	if string(a) == string(b) {
+		t.Fatalf("labels must produce distinct keys")
+	}
+	if string(DeriveKey(master, "oauth-tokens-v1")) != string(a) {
+		t.Fatalf("derivation must be deterministic")
+	}
+}
+
+// TestLoadOrCreateSecret covers the auto-generation path: configured value
+// wins; blank generates, persists 0600, and is stable across reloads.
+func TestLoadOrCreateSecret(t *testing.T) {
+	path := t.TempDir() + "/stream_secret"
+
+	if got, err := LoadOrCreateSecret("configured-secret", path); err != nil || string(got) != "configured-secret" {
+		t.Fatalf("configured secret must win: got=%q err=%v", got, err)
+	}
+	if _, err := LoadOrCreateSecret("", path); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	first, err := LoadOrCreateSecret("", path)
+	if err != nil || len(first) < 32 {
+		t.Fatalf("generated secret: len=%d err=%v", len(first), err)
+	}
+	second, err := LoadOrCreateSecret("", path)
+	if err != nil || string(second) != string(first) {
+		t.Fatalf("secret must be stable across restarts: err=%v", err)
 	}
 }

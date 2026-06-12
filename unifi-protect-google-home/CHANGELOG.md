@@ -1,3 +1,39 @@
+## 0.4.0
+
+Hardening release: a full-codebase review (security, media pipeline, control plane, project hygiene) fixed every confirmed finding.
+
+### Security
+
+- **`/admin/discover` removed from the public listener.** The internet-exposed API server (the one you reverse-proxy for Google) no longer serves an unauthenticated LAN-discovery endpoint; discovery lives exclusively in the HA-authenticated ingress setup UI.
+- **`bridge.stream_token_secret` is now optional and auto-generated.** When blank, the bridge generates 32 random bytes on first start and persists them next to `options.json` (`/data/stream_secret`), so users are never pushed to invent a weak secret. Existing configured secrets keep working.
+- **OAuth tokens and stream URLs now use separate signing keys**, derived from the master secret via HMAC-SHA256 domain separation — a leaked stream URL can never be parlayed into an OAuth token or vice versa. *Note: existing Google account links and in-flight stream URLs are invalidated once by this change; re-link the action in the Google Home app after upgrading.*
+- **`redirect_uri` is validated** on `/oauth/authorize`: only Google's fixed account-linking redirector (`oauth-redirect[-sandbox].googleusercontent.com`) is accepted, closing an open-redirect / code-exfiltration vector.
+- **Consent password brute-force protection**: failed attempts on the consent page are rate limited (5 per IP / 20 globally per 15 minutes), and `bridge.consent_password` now requires at least 8 characters.
+
+### Reliability
+
+- **Fixed a panic + RTSP connection leak in the progressive-MP4 muxer** when a camera offers a non-H.264 track (H.265 "Enhanced" encoding, or audio listed first in the SDP).
+- **Fixed idle watchdogs (MP4 + HLS) silently dying** when a viewer re-attached during the stop race — the upstream RTSPS session to Protect then stayed open until restart.
+- **Fixed data races and a latent deadlock in the MP4 muxer** by moving all demux state onto a dedicated goroutine; the RTP callback no longer touches the muxer lock (gortsplib's `Close` joins in-flight callbacks, so callback-side locking could deadlock teardown).
+- **WebRTC streams now survive camera drops**: the RTSP producer reconnects with backoff and keeps feeding the same pion track, so viewers resume instead of freezing forever. Transient `Disconnected` peer states no longer kill the session (pion promotes real failures to `Failed` on its own). Also removed an unbounded per-negotiation session list.
+- **Fixed HLS playback stalling after ~6.6 hours** (32-bit RTP timestamp wrap made the PTS jump negative); both muxers now accumulate signed deltas. The MP4 muxer also harvests in-band SPS/PPS, so cameras that omit `sprop-parameter-sets` from the SDP now stream.
+- **Protect websocket reconnects are storm-proof**: backoff is only reset after a connection survives 30 s, and a 401/403 on the WS dial invalidates the session so the next attempt re-logins instead of redialing with a dead cookie. The WS dialer also honours the DirectConnect TLS-verify override that the HTTP client already applied.
+- **Startup no longer burns HomeGraph RequestSync quota**: the first refresh no longer counts every camera as "added" (which bypassed the fingerprint gate added in 0.3.22 and re-created the 0.3.21 429 risk on every restart).
+- **`agent_user_id` is honoured in SYNC.** Previously the SYNC response hardcoded the default while ReportState/RequestSync used the configured value — overriding the option silently broke state reporting.
+- **Allow-list edges closed**: hiding a camera now also invalidates already-issued HLS/MP4 URLs at serving time (previously valid up to an hour), and re-exposing a camera pushes a fresh ReportState so Google's cache doesn't stay stale.
+- **Fixed a data race on the hot-applied `ws_event_log` setting** between the setup UI and the status endpoint.
+
+### Internals & project
+
+- Extracted the control plane (`reconciler`, `CameraSource`, setup-UI glue, secrets) from `cmd/bridge/main.go` (992 lines) into a new `internal/bridge` package; `main.go` is now wiring only.
+- Added test suites for the previously untested security and protocol surface: `internal/oauth`, `internal/api`, `internal/ghome` (EXECUTE protocol ladder), `internal/config`, `internal/streams`, plus `internal/bridge`.
+- **aarch64 builds.** `Dockerfile` now respects the builder's `BUILD_FROM` (build.yaml was previously dead config), and config/CI/release build amd64 + aarch64.
+- Supervisor **watchdog** enabled against the existing `/healthz` endpoint.
+- CI: Go module caching fixed, ShellCheck actually checks the s6 scripts (as bash), golangci-lint pinned and extended with `gosec`, `bodyclose`, `errorlint`.
+- Dependabot now watches the add-on subdirectory for Go-module and Docker updates (it was pointed at the empty repo root since the layout change).
+- Releases created by the version-bump workflow now trigger the image build automatically (GITHUB_TOKEN-created releases never fire `release: published`); the workflow fails instead of inserting a placeholder changelog entry.
+- DOCS.md corrected: fulfillment URL is `/smarthome`, no `/oauth/callback` exists, host port is 8199, and the `exposed_cameras` / `ws_event_log` options are documented.
+
 ## 0.3.27
 
 - **Protect WS event log verbosity is now configurable.** New `bridge.ws_event_log` add-on option (one of `off`, `interesting`, `all`; default `interesting`) controls how chatty the `protect ws: camera … action=update fields=[…]` lines are. On a busy NVR each camera emits several telemetry-only frames per minute (`phyRate`, `wifiConnectionState`, `stats`, `nvrMac`, `uptime`, `lastSeen`, `uplinkDevice`, `isRecording`, …) that the bridge does not act on — at the default `interesting` level those frames are dropped from the log and only events touching a field the bridge actually reacts to (`state`, `isConnected`, `isAdopted`, `name`, `channels`, `lastRing`, `lastMotion`, `isMotionDetected`) are written. `all` restores the legacy behavior for diagnosing firmware regressions; `off` silences the category entirely.

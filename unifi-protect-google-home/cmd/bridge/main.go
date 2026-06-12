@@ -1,12 +1,10 @@
 // Command bridge is the UniFi Protect → Google Home add-on entrypoint.
+// All domain logic lives in internal/bridge; this file is flags, config,
+// construction, and lifecycle.
 package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"flag"
 	"log"
 	"log/slog"
@@ -15,26 +13,21 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/api"
+	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/bridge"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/config"
-	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/discovery"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/ghome"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/hls"
 	mp4srv "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/mp4"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/oauth"
-	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/rtsp"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/setup"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/streams"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/unifi"
 	wrtc "github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/webrtc"
 )
-
-const bootstrapInterval = 10 * time.Second
 
 // slogWriter routes stdlib `log` output through slog so existing log.Printf
 // call sites are subject to the configured level filter. Messages are emitted
@@ -122,12 +115,11 @@ func run() int {
 	}
 
 	registry := streams.NewRegistry()
-	src := &cameraSource{}
-	src.SetAllowed(cfg.Bridge.ExposedCameras)
+	src := bridge.NewCameraSource(cfg.Bridge.ExposedCameras)
 	if n := len(cfg.Bridge.ExposedCameras); n > 0 {
 		log.Printf("camera exposure: %d camera(s) explicitly allowed via bridge.exposed_cameras", n)
 	} else {
-		log.Printf("camera exposure: bridge.exposed_cameras is empty \u2014 all cameras advertised to Google Home")
+		log.Printf("camera exposure: bridge.exposed_cameras is empty — all cameras advertised to Google Home")
 	}
 
 	var hg *ghome.HomeGraph
@@ -151,18 +143,11 @@ func run() int {
 	} else {
 		log.Printf("homegraph: disabled via google.enable_homegraph=false")
 	}
-	rec := &reconciler{
-		unifi:       uc,
-		reg:         registry,
-		src:         src,
-		hg:          hg,
-		agentUserID: cfg.Bridge.AgentUserID,
-		verifyTLS:   cfg.UniFi.VerifyTLS,
-	}
-	rec.wsLogLevel.Store(wsLogLevelFromString(cfg.Bridge.WSEventLog))
-	log.Printf("protect ws: event log level = %s", wsLogLevelString(rec.wsLogLevel.Load()))
 
-	if _, err := rec.refresh(ctx); err != nil {
+	rec := bridge.NewReconciler(uc, registry, src, hg, cfg.Bridge.AgentUserID, cfg.UniFi.VerifyTLS, cfg.Bridge.WSEventLog)
+	log.Printf("protect ws: event log level = %s", rec.WSEventLog())
+
+	if _, err := rec.Refresh(ctx); err != nil {
 		log.Printf("initial bootstrap: %v", err)
 		return 1
 	}
@@ -175,9 +160,9 @@ func run() int {
 	if v, mac := uc.NVRInfo(); v != "" {
 		log.Printf("unifi: connected to NVR %s (Protect %s)", mac, v)
 	}
-	log.Printf("loaded %d camera(s)", len(src.snapshot()))
+	log.Printf("loaded %d camera(s)", len(src.Snapshot()))
 
-	fulfill := &ghome.Handler{Source: src}
+	fulfill := &ghome.Handler{Source: src, AgentUserID: cfg.Bridge.AgentUserID}
 
 	// Conditionally fire HomeGraph RequestSync on startup. We only call it
 	// when the SYNC fingerprint (device list + advertised capabilities)
@@ -189,46 +174,51 @@ func run() int {
 	// while the bridge is running.
 	syncStatePath := filepath.Join(filepath.Dir(*optsPath), "sync_state.json")
 	if hg != nil {
-		go startupRequestSync(hg, fulfill, cfg.Bridge.AgentUserID, syncStatePath)
+		go bridge.StartupRequestSync(hg, fulfill, cfg.Bridge.AgentUserID, syncStatePath)
 	}
 
 	// Expose live runtime state to the ingress setup UI so the side-panel
 	// page can render NVR info, the live camera list, and Google linkage.
 	if setupSrv != nil {
-		setupSrv.SetStatus(&bridgeStatus{
-			cfg:           cfg,
-			uc:            uc,
-			src:           src,
-			fulfill:       fulfill,
-			hg:            hg,
-			syncStatePath: syncStatePath,
-		})
-		setupSrv.SetCameraApplier(&cameraApplier{src: src, hg: hg, agentUserID: cfg.Bridge.AgentUserID})
-		setupSrv.SetWSLogApplier(&wsLogApplier{rec: rec, cfg: cfg})
+		setupSrv.SetStatus(bridge.NewStatus(cfg, uc, src, fulfill, hg, rec, syncStatePath))
+		setupSrv.SetCameraApplier(bridge.NewCameraApplier(src, hg, cfg.Bridge.AgentUserID))
+		setupSrv.SetWSLogApplier(bridge.NewWSLogApplier(rec))
 	}
 
-	go rec.poll(ctx)
+	go rec.Poll(ctx)
 
-	oauthSrv := oauth.New(cfg.Google.OAuthClientID, cfg.Google.OAuthClientSecret, cfg.Bridge.ConsentPassword, []byte(cfg.Bridge.StreamTokenSecret))
+	// The master secret is auto-generated (32 random bytes persisted next
+	// to options.json) when bridge.stream_token_secret is left blank, so
+	// users are never pushed to invent a weak one. OAuth tokens and stream
+	// URLs are signed with separate keys derived from it: a leaked stream
+	// URL can never be parlayed into an OAuth token (or vice versa), even
+	// though both ultimately come from one configured secret.
+	master, err := bridge.LoadOrCreateSecret(cfg.Bridge.StreamTokenSecret,
+		filepath.Join(filepath.Dir(*optsPath), "stream_secret"))
+	if err != nil {
+		log.Printf("stream secret: %v", err)
+		return 1
+	}
+	oauthKey := bridge.DeriveKey(master, "oauth-tokens-v1")
+	streamKey := bridge.DeriveKey(master, "stream-urls-v1")
+
+	oauthSrv := oauth.New(cfg.Google.OAuthClientID, cfg.Google.OAuthClientSecret, cfg.Bridge.ConsentPassword, oauthKey)
 	factory := wrtc.NewFactory()
-	hlsSrv := hls.NewServer(src.rtspURLOf)
+	hlsSrv := hls.NewServer(src.RTSPURLOf)
 	defer hlsSrv.Shutdown()
-	mp4Srv := mp4srv.NewServer(src.rtspURLOf)
+	mp4Srv := mp4srv.NewServer(src.RTSPURLOf)
 	defer mp4Srv.Shutdown()
 	apiSrv := &api.Server{
 		PublicBaseURL:     cfg.Bridge.PublicBaseURL,
-		StreamTokenSecret: []byte(cfg.Bridge.StreamTokenSecret),
+		StreamTokenSecret: streamKey,
 		OAuth:             oauthSrv,
 		Fulfill:           fulfill,
 		Registry:          registry,
 		WebRTC:            factory,
 		HLS:               hlsSrv,
 		MP4:               mp4Srv,
-		Discover: func(ctx context.Context) ([]discovery.Device, error) {
-			return discovery.Scan(ctx, 5*time.Second)
-		},
 	}
-	src.signaling = apiSrv
+	src.SetSignaling(apiSrv)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Bridge.ListenAddr,
@@ -260,733 +250,3 @@ func run() int {
 	_ = httpSrv.Shutdown(shutCtx)
 	return 0
 }
-
-// reconciler refreshes the camera list from the UniFi bootstrap and pushes
-// add/remove/state changes to Google Home Graph.
-type reconciler struct {
-	unifi       *unifi.Client
-	reg         *streams.Registry
-	src         *cameraSource
-	hg          *ghome.HomeGraph
-	agentUserID string
-	verifyTLS   bool
-	// wsLogLevel is one of wsLogOff/wsLogInteresting/wsLogAll. Stored as
-	// int32 so the per-event hot path can read it without locks.
-	wsLogLevel atomic.Int32
-}
-
-// Protect WS log verbosity levels. Persisted in bridge.ws_event_log and
-// hot-applied via setup.WSLogApplier.
-const (
-	wsLogOff         int32 = 0
-	wsLogInteresting int32 = 1
-	wsLogAll         int32 = 2
-)
-
-// wsLogLevelFromString parses a user-facing value. Falls back to
-// "interesting" for empty/unknown input — matches config.Load defaults.
-func wsLogLevelFromString(s string) int32 {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "off":
-		return wsLogOff
-	case "all":
-		return wsLogAll
-	default:
-		return wsLogInteresting
-	}
-}
-
-func wsLogLevelString(v int32) string {
-	switch v {
-	case wsLogOff:
-		return "off"
-	case wsLogAll:
-		return "all"
-	default:
-		return "interesting"
-	}
-}
-
-// wsInterestingFields is the set of Protect camera fields the bridge
-// actually reacts to (ring, motion, online state, name/channels). All
-// other fields are pure telemetry noise (uptime, lastSeen, phyRate,
-// stats, nvrMac, uplinkDevice, isRecording, …) that we never act on.
-var wsInterestingFields = map[string]struct{}{
-	"state":             {},
-	"isConnected":       {},
-	"isAdopted":         {},
-	"name":              {},
-	"channels":          {},
-	"lastRing":          {},
-	"lastMotion":        {},
-	"isMotionDetected":  {},
-}
-
-func wsHasInterestingField(fields map[string]json.RawMessage) bool {
-	for k := range fields {
-		if _, ok := wsInterestingFields[k]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-// syncStateFile is the on-disk shape of the persisted SYNC fingerprint.
-type syncStateFile struct {
-	Fingerprint string `json:"fingerprint"`
-	UpdatedAt   string `json:"updated_at"`
-}
-
-// startupRequestSync fires a HomeGraph RequestSync iff the current SYNC
-// fingerprint differs from the previously persisted one. On success the
-// new fingerprint is written to disk so subsequent restarts skip the call
-// and stay well under HomeGraph's per-project quota.
-func startupRequestSync(hg *ghome.HomeGraph, fulfill *ghome.Handler, agentUserID, statePath string) {
-	current := fulfill.SyncFingerprint()
-
-	prev := ""
-	if data, err := os.ReadFile(statePath); err == nil {
-		var st syncStateFile
-		if json.Unmarshal(data, &st) == nil {
-			prev = st.Fingerprint
-		}
-	}
-
-	if prev == current {
-		log.Printf("homegraph requestSync (startup): skipped, fingerprint unchanged (%s)", current[:12])
-		return
-	}
-
-	syncCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := hg.RequestSync(syncCtx, agentUserID); err != nil {
-		log.Printf("homegraph requestSync (startup): %v", err)
-		return
-	}
-	log.Printf("homegraph requestSync (startup): ok (fingerprint %s -> %s)", truncFP(prev), current[:12])
-
-	out, _ := json.MarshalIndent(syncStateFile{
-		Fingerprint: current,
-		UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
-	}, "", "  ")
-	if err := os.WriteFile(statePath, out, 0o600); err != nil {
-		log.Printf("homegraph requestSync (startup): warning, could not persist fingerprint to %s: %v", statePath, err)
-	}
-}
-
-func truncFP(fp string) string {
-	if fp == "" {
-		return "(none)"
-	}
-	if len(fp) < 12 {
-		return fp
-	}
-	return fp[:12]
-}
-
-func (r *reconciler) poll(ctx context.Context) {
-	// Periodic safety net in case the WS misses an event.
-	safety := time.NewTicker(bootstrapInterval)
-	defer safety.Stop()
-
-	// Debounced refresh trigger fed by the WS goroutine.
-	trigger := make(chan struct{}, 1)
-	fire := func() {
-		select {
-		case trigger <- struct{}{}:
-		default:
-		}
-	}
-
-	go r.watchEvents(ctx, fire)
-
-	const debounce = 300 * time.Millisecond
-	var pending *time.Timer
-	for {
-		select {
-		case <-ctx.Done():
-			if pending != nil {
-				pending.Stop()
-			}
-			return
-		case <-safety.C:
-			if _, err := r.refresh(ctx); err != nil {
-				log.Printf("bootstrap refresh: %v", err)
-			}
-		case <-trigger:
-			if pending == nil {
-				pending = time.AfterFunc(debounce, func() {
-					if _, err := r.refresh(ctx); err != nil {
-						log.Printf("bootstrap refresh (ws-triggered): %v", err)
-					}
-				})
-			} else {
-				pending.Reset(debounce)
-			}
-		}
-	}
-}
-
-// watchEvents subscribes to the Protect updates WebSocket and signals fire()
-// whenever a camera-relevant event arrives. It reconnects with exponential
-// backoff (capped) until ctx is canceled.
-func (r *reconciler) watchEvents(ctx context.Context, fire func()) {
-	backoff := time.Second
-	const maxBackoff = 30 * time.Second
-	lastUpdateID := r.src.lastUpdateID()
-
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		ch, err := r.unifi.SubscribeEvents(ctx, lastUpdateID)
-		if err != nil {
-			log.Printf("protect ws: dial: %v (retry in %s)", err, backoff)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(backoff):
-			}
-			if backoff < maxBackoff {
-				backoff *= 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
-			}
-			continue
-		}
-		log.Printf("protect ws: connected (lastUpdateId=%q)", lastUpdateID)
-		backoff = time.Second
-
-		for ev := range ch {
-			if ev.NewUpdateID != "" {
-				lastUpdateID = ev.NewUpdateID
-				r.src.setLastUpdateID(ev.NewUpdateID)
-			}
-			if ev.ModelKey != "camera" {
-				continue
-			}
-			if ev.Action == "update" || ev.Action == "add" {
-				lvl := r.wsLogLevel.Load()
-				if lvl == wsLogAll || (lvl == wsLogInteresting && wsHasInterestingField(ev.Fields)) {
-					keys := make([]string, 0, len(ev.Fields))
-					for k := range ev.Fields {
-						keys = append(keys, k)
-					}
-					log.Printf("protect ws: camera %s action=%s fields=%v", ev.ID, ev.Action, keys)
-				}
-			}
-			// Detect doorbell ring events. Protect signals these as an
-			// update to the camera's `lastRing` field (an epoch-ms
-			// timestamp). Push a Google Home ObjectDetection
-			// notification so the Home app rings the user's phone.
-			if ev.Action == "update" {
-				if _, ok := ev.Fields["lastRing"]; ok {
-					r.handleRing(ev.ID)
-				}
-			}
-			// Connectivity transitions can show up under several field
-			// names depending on Protect firmware: `state` ("CONNECTED"
-			// / "DISCONNECTED"), `isConnected` (bool), or come in with
-			// an "add" action when a camera re-adopts after a longer
-			// outage. Handle them all.
-			if ev.Action == "update" || ev.Action == "add" {
-				if online, ok := decodeOnline(ev.Fields); ok {
-					r.handleStateChange(ev.ID, online)
-				}
-			}
-			// add/remove always triggers a refresh; for "update" only react if
-			// fields we care about changed (state / name / channels / isConnected).
-			if ev.Action == "update" {
-				if _, ok := ev.Fields["state"]; !ok {
-					if _, ok := ev.Fields["isConnected"]; !ok {
-						if _, ok := ev.Fields["name"]; !ok {
-							if _, ok := ev.Fields["channels"]; !ok {
-								continue
-							}
-						}
-					}
-				}
-			}
-			fire()
-		}
-		log.Printf("protect ws: disconnected")
-	}
-}
-
-// refresh pulls the current bootstrap snapshot and reconciles the registry
-// + the ghome.Source snapshot. On membership change calls RequestSync; on
-// online-state change calls ReportState. Returns the controller's
-// lastUpdateID so the WS subscription can resume from the right cursor.
-func (r *reconciler) refresh(ctx context.Context) (string, error) {
-	cams, lastUpdateID, err := r.unifi.Bootstrap(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	prev := r.src.snapshotMap()
-	seen := make(map[string]struct{}, len(cams))
-	ghomeCams := make([]ghome.Camera, 0, len(cams))
-	onlineChanged := map[string]map[string]any{}
-
-	for _, cam := range cams {
-		seen[cam.ID] = struct{}{}
-		next := ghome.Camera{
-			ID:           cam.ID,
-			Name:         cam.Name,
-			Manufacturer: "Ubiquiti",
-			Model:        cam.Model,
-			Online:       cam.Online,
-		}
-		ghomeCams = append(ghomeCams, next)
-		if p, had := prev[cam.ID]; had {
-			if p.Online != next.Online {
-				onlineChanged[cam.ID] = map[string]any{"online": next.Online}
-			}
-		} else {
-			// First time we see this camera in this process — push initial
-			// state so HomeGraph's cache is populated. The Test Suite reads
-			// online from that cache, not from QUERY.
-			onlineChanged[cam.ID] = map[string]any{"online": next.Online}
-		}
-
-		if _, exists := r.reg.Get(cam.ID); exists {
-			continue
-		}
-		ch := cam.BestRTSPChannel()
-		if ch == nil {
-			log.Printf("camera %s (%s): no RTSP-enabled channel, skipping", cam.ID, cam.Name)
-			continue
-		}
-		url, err := r.unifi.StreamURL(cam, *ch)
-		if err != nil {
-			log.Printf("camera %s: stream url: %v", cam.ID, err)
-			continue
-		}
-		prod := rtsp.NewProducer(cam.ID, url, r.verifyTLS)
-		r.reg.Put(streams.NewStream(cam.ID, prod))
-		r.src.setRTSPURL(cam.ID, url, r.verifyTLS)
-		log.Printf("registered camera %s (%s) %dx%d", cam.ID, cam.Name, ch.Width, ch.Height)
-	}
-
-	added := 0
-	for id := range seen {
-		if _, had := prev[id]; !had && r.src.isAllowed(id) {
-			added++
-		}
-	}
-	removed := 0
-	for _, name := range r.reg.Names() {
-		if _, ok := seen[name]; !ok {
-			r.reg.Delete(name)
-			log.Printf("removed camera %s", name)
-			if r.src.isAllowed(name) {
-				removed++
-			}
-		}
-	}
-
-	r.src.set(ghomeCams)
-
-	// Filter ReportState updates to exposed cameras only — HomeGraph will
-	// reject (or silently drop) entries for IDs it never received via SYNC.
-	for id := range onlineChanged {
-		if !r.src.isAllowed(id) {
-			delete(onlineChanged, id)
-		}
-	}
-
-	if r.hg != nil {
-		if added > 0 || removed > 0 {
-			go func() {
-				syncCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				if err := r.hg.RequestSync(syncCtx, r.agentUserID); err != nil {
-					log.Printf("homegraph requestSync: %v", err)
-				}
-			}()
-		}
-		if len(onlineChanged) > 0 {
-			go func() {
-				rsCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-				defer cancel()
-				if err := r.hg.ReportState(rsCtx, r.agentUserID, onlineChanged); err != nil {
-					log.Printf("homegraph reportState: %v", err)
-				}
-			}()
-		}
-	}
-	r.src.setLastUpdateID(lastUpdateID)
-	return lastUpdateID, nil
-}
-
-// decodeOnline extracts the online flag from a Protect WS update payload.
-// It accepts either `state` (string "CONNECTED"/"DISCONNECTED"/...) or
-// `isConnected` (bool). Returns (online, true) when the payload carries a
-// connectivity signal and (false, false) otherwise.
-func decodeOnline(fields map[string]json.RawMessage) (bool, bool) {
-	if raw, ok := fields["state"]; ok {
-		var s string
-		if err := json.Unmarshal(raw, &s); err == nil {
-			return strings.EqualFold(s, "CONNECTED"), true
-		}
-	}
-	if raw, ok := fields["isConnected"]; ok {
-		var b bool
-		if err := json.Unmarshal(raw, &b); err == nil {
-			return b, true
-		}
-	}
-	return false, false
-}
-
-// handleStateChange propagates a camera online/offline transition observed
-// on the Protect updates WebSocket directly to HomeGraph, without waiting
-// for the debounced bootstrap refresh. The Google Home Test Suite's
-// OnlineOffline test polls QUERY and expects state to flip within a few
-// seconds of the camera physically going offline.
-func (r *reconciler) handleStateChange(camID string, online bool) {
-	changed, cam, ok := r.src.setOnline(camID, online)
-	if !ok || !changed {
-		return
-	}
-	log.Printf("camera %s (%s) -> online=%v", camID, cam.Name, online)
-	if r.hg == nil || !r.src.isAllowed(camID) {
-		return
-	}
-	states := map[string]map[string]any{camID: {"online": online}}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := r.hg.ReportState(ctx, r.agentUserID, states); err != nil {
-			log.Printf("homegraph reportState (state %s): %v", cam.Name, err)
-		}
-	}()
-}
-
-// handleRing pushes a Google Home ObjectDetection notification for a
-// doorbell press. Non-doorbell cameras are ignored. Errors are logged but
-// not returned — a missed ring shouldn't crash the bridge.
-func (r *reconciler) handleRing(camID string) {
-	if r.hg == nil || !r.src.isAllowed(camID) {
-		return
-	}
-	cam, ok := r.src.snapshotMap()[camID]
-	if !ok || !ghome.IsDoorbell(cam) {
-		return
-	}
-	var nonce [8]byte
-	_, _ = rand.Read(nonce[:])
-	eventID := hex.EncodeToString(nonce[:])
-	notifications := map[string]map[string]any{
-		camID: {
-			"ObjectDetection": map[string]any{
-				"priority":           0,
-				"detectionTimestamp": time.Now().UnixMilli(),
-				"objects":            map[string]any{"named": []string{"Doorbell Press"}},
-			},
-		},
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := r.hg.Notify(ctx, r.agentUserID, eventID, notifications); err != nil {
-			log.Printf("homegraph notify (ring %s): %v", cam.Name, err)
-			return
-		}
-		log.Printf("doorbell ring %s -> notified", cam.Name)
-	}()
-}
-
-// cameraSource is the ghome.Source implementation backed by an atomic
-// snapshot of the latest bootstrap result.
-type cameraSource struct {
-	mu           sync.RWMutex
-	cameras      []ghome.Camera
-	rtspURLs     map[string]rtspEntry
-	lastUpdateId string
-	signaling    *api.Server
-	// allowed is the set of camera IDs the user opted in to expose via
-	// Google Home. nil means "allow all" (backward-compatible default for
-	// installs without bridge.exposed_cameras configured).
-	allowed map[string]bool
-}
-
-// errCameraNotExposed is returned by the per-camera URL helpers when the
-// camera ID is not in the configured exposure allow-list. Bubbling it out
-// of Source.SignalingURL / HLSURL / ProgressiveMP4URL turns into a
-// deviceOffline error in the ghome EXECUTE handler — a safe shape that
-// keeps the stream from leaving the LAN even if Google still has a
-// cached device entry from before the user trimmed the list.
-var errCameraNotExposed = errors.New("camera is not exposed to google home")
-
-// rtspEntry is the per-camera info the HLS muxer needs to open upstream.
-type rtspEntry struct {
-	URL       string
-	VerifyTLS bool
-}
-
-func (s *cameraSource) lastUpdateID() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.lastUpdateId
-}
-
-func (s *cameraSource) setLastUpdateID(id string) {
-	if id == "" {
-		return
-	}
-	s.mu.Lock()
-	s.lastUpdateId = id
-	s.mu.Unlock()
-}
-
-func (s *cameraSource) set(cams []ghome.Camera) {
-	s.mu.Lock()
-	s.cameras = cams
-	s.mu.Unlock()
-}
-
-// setOnline flips the cached online flag for a single camera. Returns
-// (changed, camera, exists). When the camera is not in the current snapshot
-// exists is false and the caller should fall back to a full bootstrap.
-func (s *cameraSource) setOnline(camID string, online bool) (bool, ghome.Camera, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, c := range s.cameras {
-		if c.ID != camID {
-			continue
-		}
-		if c.Online == online {
-			return false, c, true
-		}
-		s.cameras[i].Online = online
-		return true, s.cameras[i], true
-	}
-	return false, ghome.Camera{}, false
-}
-
-func (s *cameraSource) snapshot() []ghome.Camera {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]ghome.Camera, len(s.cameras))
-	copy(out, s.cameras)
-	return out
-}
-
-// SetAllowed installs the camera-exposure allow-list. ids==nil or an empty
-// slice means "allow all cameras" (the historical behaviour). Subsequent
-// ListCameras calls and signaling URL lookups honour the new set
-// immediately, so the setup UI can hot-apply changes without restarting.
-func (s *cameraSource) SetAllowed(ids []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(ids) == 0 {
-		s.allowed = nil
-		return
-	}
-	set := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		if id != "" {
-			set[id] = true
-		}
-	}
-	if len(set) == 0 {
-		s.allowed = nil
-		return
-	}
-	s.allowed = set
-}
-
-// isAllowed reports whether the camera is currently exposed to Google.
-// A nil allow-list means "all cameras allowed".
-func (s *cameraSource) isAllowed(id string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.allowed == nil || s.allowed[id]
-}
-
-// snapshotMap returns the current cameras keyed by ID for diff-friendly lookup.
-func (s *cameraSource) snapshotMap() map[string]ghome.Camera {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make(map[string]ghome.Camera, len(s.cameras))
-	for _, c := range s.cameras {
-		out[c.ID] = c
-	}
-	return out
-}
-
-func (s *cameraSource) ListCameras() []ghome.Camera {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.allowed == nil {
-		out := make([]ghome.Camera, len(s.cameras))
-		copy(out, s.cameras)
-		return out
-	}
-	out := make([]ghome.Camera, 0, len(s.cameras))
-	for _, c := range s.cameras {
-		if s.allowed[c.ID] {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-func (s *cameraSource) SignalingURL(camID string) (string, error) {
-	if !s.isAllowed(camID) {
-		return "", errCameraNotExposed
-	}
-	return s.signaling.SignalingURL(camID)
-}
-
-func (s *cameraSource) HLSURL(camID string) (string, error) {
-	if !s.isAllowed(camID) {
-		return "", errCameraNotExposed
-	}
-	return s.signaling.HLSURL(camID)
-}
-
-func (s *cameraSource) ProgressiveMP4URL(camID string) (string, string, error) {
-	if !s.isAllowed(camID) {
-		return "", "", errCameraNotExposed
-	}
-	return s.signaling.ProgressiveMP4URL(camID)
-}
-
-// setRTSPURL records the RTSP url + TLS-verify flag for a camera so the
-// HLS muxer can look it up by ID.
-func (s *cameraSource) setRTSPURL(camID, url string, verifyTLS bool) {
-	s.mu.Lock()
-	if s.rtspURLs == nil {
-		s.rtspURLs = make(map[string]rtspEntry)
-	}
-	s.rtspURLs[camID] = rtspEntry{URL: url, VerifyTLS: verifyTLS}
-	s.mu.Unlock()
-}
-
-// rtspURLOf is the hls.Source signature: returns the upstream RTSP URL
-// and whether the upstream TLS certificate should be verified.
-func (s *cameraSource) rtspURLOf(camID string) (string, bool, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	e, ok := s.rtspURLs[camID]
-	if !ok {
-		return "", false, false
-	}
-	return e.URL, e.VerifyTLS, true
-}
-
-// cameraApplier is the setup.CameraAllowlistApplier implementation: it
-// swaps the in-memory allow-list and, when HomeGraph is wired, fires a
-// RequestSync so Google re-pulls the SYNC device list immediately.
-type cameraApplier struct {
-	src         *cameraSource
-	hg          *ghome.HomeGraph
-	agentUserID string
-}
-
-func (a *cameraApplier) ApplyExposedCameras(ids []string) {
-	a.src.SetAllowed(ids)
-	log.Printf("camera exposure: applied allow-list of %d camera(s) (empty=all)", len(ids))
-	if a.hg == nil {
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := a.hg.RequestSync(ctx, a.agentUserID); err != nil {
-			log.Printf("camera exposure: requestSync after allow-list change: %v", err)
-			return
-		}
-		log.Printf("camera exposure: requestSync sent — Google will re-pull SYNC")
-	}()
-}
-
-// wsLogApplier is the setup.WSLogApplier implementation: it swaps the
-// reconciler's ws-event log level under sync/atomic so the change takes
-// effect on the very next websocket frame, no restart needed.
-type wsLogApplier struct {
-	rec *reconciler
-	cfg *config.Config
-}
-
-func (a *wsLogApplier) ApplyWSEventLog(level string) {
-	v := wsLogLevelFromString(level)
-	a.rec.wsLogLevel.Store(v)
-	if a.cfg != nil {
-		a.cfg.Bridge.WSEventLog = wsLogLevelString(v)
-	}
-	log.Printf("protect ws: event log level changed to %s", wsLogLevelString(v))
-}
-
-// bridgeStatus is the setup.StatusProvider implementation backed by the
-// running bridge. Every call materialises a fresh snapshot from the live
-// cameraSource and config so the ingress UI shows up-to-date data.
-type bridgeStatus struct {
-	cfg           *config.Config
-	uc            *unifi.Client
-	src           *cameraSource
-	fulfill       *ghome.Handler
-	hg            *ghome.HomeGraph
-	syncStatePath string
-}
-
-// Status implements setup.StatusProvider.
-func (b *bridgeStatus) Status() setup.StatusSnapshot {
-	cams := b.src.snapshot()
-	nvrVer, nvrMAC := b.uc.NVRInfo()
-
-	out := setup.StatusSnapshot{
-		SetupMode: false,
-		UniFi: setup.UniFiStatus{
-			Host:       b.cfg.UniFi.Host,
-			Connected:  nvrMAC != "",
-			NVRMAC:     nvrMAC,
-			NVRVersion: nvrVer,
-		},
-		Bridge: setup.BridgeStatus{
-			PublicBaseURL: b.cfg.Bridge.PublicBaseURL,
-			PublicURLSet:  b.cfg.Bridge.PublicBaseURL != "",
-			AgentUserID:   b.cfg.Bridge.AgentUserID,
-			ListenAddr:    b.cfg.Bridge.ListenAddr,
-			WSEventLog:    b.cfg.Bridge.WSEventLog,
-		},
-		Google: setup.GoogleStatus{
-			HomeGraphEnabled:    b.cfg.Google.HomeGraphEnabled(),
-			HomeGraphConfigured: b.hg != nil,
-			ProjectID:           b.cfg.Google.ProjectID,
-			OAuthConfigured:     b.cfg.Google.OAuthClientID != "" && b.cfg.Google.OAuthClientSecret != "",
-		},
-	}
-	if b.hg != nil {
-		out.Google.ServiceAccountEmail = b.hg.ServiceAccountEmail()
-		saProj := b.hg.ServiceAccountProjectID()
-		out.Google.ProjectIDMismatch = b.cfg.Google.ProjectID != "" && saProj != "" && b.cfg.Google.ProjectID != saProj
-	}
-	out.Cameras = make([]setup.CameraInfo, 0, len(cams))
-	for _, c := range cams {
-		out.Cameras = append(out.Cameras, setup.CameraInfo{
-			ID:       c.ID,
-			Name:     c.Name,
-			Model:    c.Model,
-			Online:   c.Online,
-			Doorbell: ghome.IsDoorbell(c),
-			Exposed:  b.src.isAllowed(c.ID),
-		})
-	}
-	// Persisted SYNC fingerprint (so the UI can confirm Google has the
-	// current device list and that we're under quota).
-	if b.syncStatePath != "" {
-		if data, err := os.ReadFile(b.syncStatePath); err == nil {
-			var st syncStateFile
-			if json.Unmarshal(data, &st) == nil && st.Fingerprint != "" {
-				out.Bridge.SyncStateKnown = true
-				out.Bridge.SyncFingerprint = st.Fingerprint
-			}
-		}
-	}
-	return out
-}
-

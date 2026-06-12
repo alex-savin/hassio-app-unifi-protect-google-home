@@ -7,7 +7,10 @@ run:
 linters:
   default: none
   enable:
+    - bodyclose
     - errcheck
+    - errorlint
+    - gosec
     - govet
     - ineffassign
     - staticcheck
@@ -25,6 +28,23 @@ linters:
       disabled-checks:
         - ifElseChain
         - singleCaseSwitch
+    gosec:
+      excludes:
+        # G304 (file inclusion via variable): every dynamic path here is
+        # operator-controlled add-on config (options.json, sync_state.json,
+        # stream_secret), not user input.
+        - G304
+        # G115 (integer overflow conversions): RTP timestamp math relies on
+        # deliberate 32-bit wrap; load-bearing sites carry their own
+        # nolint markers with reasons.
+        - G115
+        # G124 (cookie attributes): only fires on test fixtures.
+        - G124
+        # G705/G706 (taint XSS / log injection): false positives — the
+        # bridge logs its own camera IDs and writes video bytes, not
+        # user-controlled markup.
+        - G705
+        - G706
 
 issues:
   max-issues-per-linter: 0

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Server keeps a map of per-camera Muxers and dispatches incoming HTTP
@@ -15,8 +16,9 @@ type Server struct {
 	// LookupRTSP returns the upstream RTSP URL for a camera ID. Required.
 	LookupRTSP Source
 
-	mu     sync.Mutex
-	muxers map[string]*Muxer
+	mu      sync.Mutex
+	muxers  map[string]*Muxer
+	closing atomic.Bool
 }
 
 // NewServer returns an empty Server.
@@ -31,6 +33,10 @@ func NewServer(lookup Source) *Server {
 // per-request URL is HMAC-signed elsewhere — the browser-side origin check
 // adds no real security.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.closing.Load() {
+		http.Error(w, "shutting down", http.StatusServiceUnavailable)
+		return
+	}
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -76,9 +82,11 @@ func (s *Server) muxerFor(camID string) *Muxer {
 
 // Shutdown closes all muxers. Call once on bridge exit.
 func (s *Server) Shutdown() {
+	s.closing.Store(true)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, m := range s.muxers {
 		m.Close()
 	}
+	s.muxers = map[string]*Muxer{}
 }

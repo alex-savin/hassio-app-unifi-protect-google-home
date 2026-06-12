@@ -33,8 +33,11 @@ type Google struct {
 }
 
 type Bridge struct {
-	PublicBaseURL     string `json:"public_base_url"`
-	ListenAddr        string `json:"listen_addr"`
+	PublicBaseURL string `json:"public_base_url"`
+	ListenAddr    string `json:"listen_addr"`
+	// StreamTokenSecret is the master signing secret. Leave blank to have
+	// the bridge generate a strong random secret on first start and persist
+	// it next to options.json — preferred over inventing one by hand.
 	StreamTokenSecret string `json:"stream_token_secret"`
 	ConsentPassword   string `json:"consent_password"`
 	AgentUserID       string `json:"agent_user_id"`
@@ -119,11 +122,13 @@ func (c *Config) validate() error {
 	if c.Bridge.PublicBaseURL == "" {
 		return fmt.Errorf("bridge.public_base_url is required (Google must reach the fulfillment URL)")
 	}
-	if c.Bridge.StreamTokenSecret == "" {
-		return fmt.Errorf("bridge.stream_token_secret is required (used to sign per-request stream URLs)")
-	}
+	// StreamTokenSecret is intentionally NOT required: when blank the
+	// bridge generates and persists a strong random secret itself.
 	if c.Bridge.ConsentPassword == "" {
 		return fmt.Errorf("bridge.consent_password is required (gates Google account linking)")
+	}
+	if len(c.Bridge.ConsentPassword) < 8 {
+		return fmt.Errorf("bridge.consent_password must be at least 8 characters (it gates Google account linking on an internet-exposed endpoint)")
 	}
 	return nil
 }

@@ -61,6 +61,19 @@ type Source interface {
 // Handler is the HTTP entrypoint for the Smart Home Action fulfillment URL.
 type Handler struct {
 	Source Source
+	// AgentUserID identifies this bridge instance to Google. It MUST match
+	// the ID used for HomeGraph RequestSync/ReportState calls, or Google
+	// files the devices under one user while state reports target another
+	// (persistent "agent user not found" 404s). Empty falls back to the
+	// historical default.
+	AgentUserID string
+}
+
+func (h *Handler) agentUserID() string {
+	if h.AgentUserID != "" {
+		return h.AgentUserID
+	}
+	return "unifi-protect-bridge"
 }
 
 // ServeHTTP dispatches the Smart Home intent.
@@ -105,7 +118,7 @@ func (h *Handler) sync(reqID string) intentResponse {
 	return intentResponse{
 		RequestID: reqID,
 		Payload: map[string]any{
-			"agentUserId": "unifi-protect-bridge",
+			"agentUserId": h.agentUserID(),
 			"devices":     devices,
 		},
 	}
@@ -169,7 +182,12 @@ func (h *Handler) SyncFingerprint() string {
 	sorted := make([]device, len(devs))
 	copy(sorted, devs)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
-	b, _ := json.Marshal(sorted)
+	// The agent user ID is part of the SYNC response, so a change to it
+	// must change the fingerprint and re-trigger the startup RequestSync.
+	b, _ := json.Marshal(struct {
+		AgentUserID string   `json:"agentUserId"`
+		Devices     []device `json:"devices"`
+	}{h.agentUserID(), sorted})
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }

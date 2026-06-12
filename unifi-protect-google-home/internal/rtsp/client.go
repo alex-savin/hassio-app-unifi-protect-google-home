@@ -41,7 +41,11 @@ var annexBStartCode = []byte{0x00, 0x00, 0x00, 0x01}
 // (Chromecast / Google Home displays) have parameter sets to initialize.
 const h264NALUTypeIDR = 5
 
-// Producer is a streams.Producer backed by an RTSP/RTSPS source.
+// Producer is a streams.Producer backed by an RTSP/RTSPS source. Once
+// started it keeps the upstream alive — reconnecting with backoff when the
+// camera drops — until Stop is called or the start context is cancelled.
+// The pion track survives reconnects, so attached PeerConnections resume
+// instead of freezing on the last frame.
 type Producer struct {
 	URL       string
 	StreamID  string
@@ -61,9 +65,44 @@ func NewProducer(streamID, url string, verifyTLS bool) *Producer {
 // Start opens the RTSP session, locates an H.264 video media, creates a pion
 // sample track, and begins forwarding access units in a background goroutine.
 func (p *Producer) Start(ctx context.Context) ([]webrtc.TrackLocal, error) {
+	c, videoFormat, err := p.connect()
+	if err != nil {
+		return nil, err
+	}
+
+	profileLevelID := profileLevelIDFromSPS(videoFormat.SPS)
+	track, err := webrtc.NewTrackLocalStaticSample(
+		webrtc.RTPCodecCapability{
+			MimeType:    webrtc.MimeTypeH264,
+			ClockRate:   90000,
+			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=" + profileLevelID,
+		},
+		"video", p.StreamID,
+	)
+	if err != nil {
+		c.Close()
+		return nil, fmt.Errorf("new track: %w", err)
+	}
+
+	p.mu.Lock()
+	p.client = c
+	p.track = track
+	p.closed = false // producers are restartable (Acquire → release → Acquire)
+	p.mu.Unlock()
+
+	go p.run(ctx, c)
+
+	return []webrtc.TrackLocal{track}, nil
+}
+
+// connect dials the source, finds the H.264 media, and starts playback.
+// Decoded access units are written to whatever track is current at the
+// moment of arrival, so sessions created by reconnects feed the same track
+// the consumers already hold.
+func (p *Producer) connect() (*gortsplib.Client, *format.H264, error) {
 	u, err := base.ParseURL(p.URL)
 	if err != nil {
-		return nil, fmt.Errorf("parse url: %w", err)
+		return nil, nil, fmt.Errorf("parse url: %w", err)
 	}
 
 	transport := gortsplib.TransportTCP
@@ -74,13 +113,13 @@ func (p *Producer) Start(ctx context.Context) ([]webrtc.TrackLocal, error) {
 		Host:      u.Host,
 	}
 	if err := c.Start2(); err != nil {
-		return nil, fmt.Errorf("rtsp start: %w", err)
+		return nil, nil, fmt.Errorf("rtsp start: %w", err)
 	}
 
 	desc, _, err := c.Describe(u)
 	if err != nil {
 		c.Close()
-		return nil, fmt.Errorf("describe: %w", err)
+		return nil, nil, fmt.Errorf("describe: %w", err)
 	}
 
 	var videoMedia *description.Media
@@ -99,41 +138,27 @@ func (p *Producer) Start(ctx context.Context) ([]webrtc.TrackLocal, error) {
 	}
 	if videoFormat == nil {
 		c.Close()
-		return nil, errors.New("no H.264 video track in RTSP stream")
+		return nil, nil, errors.New("no H.264 video track in RTSP stream")
 	}
 
 	if err := c.SetupAll(desc.BaseURL, []*description.Media{videoMedia}); err != nil {
 		c.Close()
-		return nil, fmt.Errorf("setup: %w", err)
+		return nil, nil, fmt.Errorf("setup: %w", err)
 	}
 
 	rtpDec, err := videoFormat.CreateDecoder()
 	if err != nil {
 		c.Close()
-		return nil, fmt.Errorf("create h264 decoder: %w", err)
-	}
-
-	profileLevelID := profileLevelIDFromSPS(videoFormat.SPS)
-	track, err := webrtc.NewTrackLocalStaticSample(
-		webrtc.RTPCodecCapability{
-			MimeType:    webrtc.MimeTypeH264,
-			ClockRate:   90000,
-			SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=" + profileLevelID,
-		},
-		"video", p.StreamID,
-	)
-	if err != nil {
-		c.Close()
-		return nil, fmt.Errorf("new track: %w", err)
+		return nil, nil, fmt.Errorf("create h264 decoder: %w", err)
 	}
 
 	sps := videoFormat.SPS
 	pps := videoFormat.PPS
 
 	var (
-		lastTS    uint32
-		haveTS    bool
-		fallback  = 33 * time.Millisecond // ~30fps default for the first sample
+		lastTS   uint32
+		haveTS   bool
+		fallback = 33 * time.Millisecond // ~30fps default for the first sample
 	)
 
 	c.OnPacketRTP(videoMedia, videoFormat, func(pkt *rtp.Packet) {
@@ -165,6 +190,10 @@ func (p *Producer) Start(ctx context.Context) ([]webrtc.TrackLocal, error) {
 		lastTS = pkt.Timestamp
 		haveTS = true
 
+		track := p.currentTrack()
+		if track == nil {
+			return // producer stopped, or first session racing Start
+		}
 		data := encodeAnnexB(au)
 		if err := track.WriteSample(media.Sample{Data: data, Duration: dur}); err != nil {
 			log.Printf("rtsp[%s] write sample: %v", p.StreamID, err)
@@ -173,31 +202,80 @@ func (p *Producer) Start(ctx context.Context) ([]webrtc.TrackLocal, error) {
 
 	if _, err := c.Play(nil); err != nil {
 		c.Close()
-		return nil, fmt.Errorf("play: %w", err)
+		return nil, nil, fmt.Errorf("play: %w", err)
 	}
 
-	p.mu.Lock()
-	p.client = c
-	p.track = track
-	p.mu.Unlock()
+	return c, videoFormat, nil
+}
 
-	go func() {
+// run watches the current session and reconnects when it dies while
+// consumers are still attached. It exits when ctx is cancelled (last
+// consumer released) or Stop is called.
+func (p *Producer) run(ctx context.Context, c *gortsplib.Client) {
+	const maxBackoff = 30 * time.Second
+	backoff := time.Second
+	for {
+		connectedAt := time.Now()
 		errCh := make(chan error, 1)
 		go func() { errCh <- c.Wait() }()
 		select {
 		case <-ctx.Done():
 			c.Close()
+			return
 		case err := <-errCh:
 			if err != nil {
 				log.Printf("rtsp[%s] session ended: %v", p.StreamID, err)
 			}
 		}
-	}()
+		if time.Since(connectedAt) > 30*time.Second {
+			backoff = time.Second
+		}
 
-	return []webrtc.TrackLocal{track}, nil
+		for {
+			if ctx.Err() != nil || p.isClosed() {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			if backoff < maxBackoff {
+				backoff *= 2
+			}
+			nc, _, err := p.connect()
+			if err != nil {
+				log.Printf("rtsp[%s] reconnect: %v", p.StreamID, err)
+				continue
+			}
+			p.mu.Lock()
+			if p.closed {
+				p.mu.Unlock()
+				nc.Close()
+				return
+			}
+			p.client = nc
+			p.mu.Unlock()
+			log.Printf("rtsp[%s] reconnected", p.StreamID)
+			c = nc
+			break
+		}
+	}
 }
 
-// Stop terminates the RTSP session.
+func (p *Producer) currentTrack() *webrtc.TrackLocalStaticSample {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.track
+}
+
+func (p *Producer) isClosed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closed
+}
+
+// Stop terminates the RTSP session and the reconnect loop.
 func (p *Producer) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

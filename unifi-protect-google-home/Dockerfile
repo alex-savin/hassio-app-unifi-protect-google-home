@@ -16,11 +16,13 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/bridge ./cmd/bridge
 
 # ---------------------------------------------------------------------------
-# Runtime stage: Home Assistant multi-arch base image (provides s6-overlay,
-# bashio, and the Alpine userland). Multi-arch manifest auto-selects the
-# correct platform when buildx builds per-arch.
+# Runtime stage: Home Assistant per-arch base image (provides s6-overlay,
+# bashio, and the Alpine userland). BUILD_FROM is injected by the HA builder
+# from build.yaml; the default keeps plain `docker build` working locally.
 # ---------------------------------------------------------------------------
-FROM ghcr.io/home-assistant/base:3.22
+ARG BUILD_FROM=ghcr.io/home-assistant/base:3.22
+# hadolint ignore=DL3006
+FROM ${BUILD_FROM}
 
 # Build-args populated by the home-assistant/builder/actions/build-image action.
 ARG BUILD_ARCH

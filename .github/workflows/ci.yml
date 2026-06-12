@@ -22,7 +22,7 @@ concurrency:
 
 env:
   ADDON_SLUG: unifi-protect-google-home
-  ARCHITECTURES: '["amd64"]'
+  ARCHITECTURES: '["amd64", "aarch64"]'
 
 permissions:
   contents: read
@@ -77,12 +77,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # The s6 service scripts are extensionless bashio scripts ("run",
+      # "finish") that the action's shebang detection skips, so they must
+      # be listed explicitly — and checked as bash, not sh (they use
+      # declare/[[ ]]).
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@2.0.0
         env:
-          SHELLCHECK_OPTS: -s sh
+          SHELLCHECK_OPTS: -s bash
         with:
           scandir: "./unifi-protect-google-home"
+          additional_files: "run finish"
 
   lint-yaml:
     name: YAML Lint
@@ -105,11 +110,13 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: unifi-protect-google-home/go.mod
+          cache-dependency-path: unifi-protect-google-home/go.sum
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          # Pinned so lint results are reproducible; bump deliberately.
+          version: v2.12.2
           working-directory: unifi-protect-google-home
 
   test-go:
@@ -126,6 +133,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: unifi-protect-google-home/go.mod
+          cache-dependency-path: unifi-protect-google-home/go.sum
 
       - name: Run Go tests
         run: go test -v -race -coverprofile=coverage.out ./...

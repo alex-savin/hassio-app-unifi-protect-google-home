@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -36,15 +37,11 @@ jobs:
           CONFIG="${ADDON_SLUG}/config.yaml"
           CHANGELOG="${ADDON_SLUG}/CHANGELOG.md"
           yq eval -i ".version = \"${VERSION}\"" "${CONFIG}"
+          # Require a real changelog entry instead of inserting a junk
+          # placeholder — write the CHANGELOG section before releasing.
           if ! grep -qE "^## ${VERSION}( |$)" "${CHANGELOG}"; then
-            {
-              echo "## ${VERSION}"
-              echo ""
-              echo "- Release ${VERSION}."
-              echo ""
-              cat "${CHANGELOG}"
-            } > "${CHANGELOG}.tmp"
-            mv "${CHANGELOG}.tmp" "${CHANGELOG}"
+            echo "::error::CHANGELOG.md has no '## ${VERSION}' section — add release notes before bumping."
+            exit 1
           fi
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
@@ -65,3 +62,16 @@ jobs:
           name: "Release ${{ steps.bump.outputs.version }}"
           generateReleaseNotes: true
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Releases created with GITHUB_TOKEN never fire the `release:
+      # published` trigger (GitHub suppresses workflow-from-workflow
+      # events), so dispatch the image build explicitly — workflow_dispatch
+      # is exempt from that suppression.
+      - name: Trigger image release workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh workflow run release.yml
+          --repo "${{ github.repository }}"
+          --ref main
+          -f ref="v${{ steps.bump.outputs.version }}"

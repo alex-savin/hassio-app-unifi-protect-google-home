@@ -43,12 +43,11 @@ type ICEServer struct {
 	Credential string   `json:"credential,omitempty"`
 }
 
-// Factory builds Sessions on demand.
+// Factory builds Sessions on demand. Sessions own their lifecycle: each
+// one closes itself (and releases its stream ref) when its peer connection
+// fails or closes, so the Factory deliberately keeps no session list.
 type Factory struct {
 	ICEServers []ICEServer
-
-	mu       sync.Mutex
-	sessions []*Session
 }
 
 // NewFactory returns a Factory with a default Google STUN server.
@@ -103,9 +102,11 @@ func (f *Factory) Negotiate(ctx context.Context, s *streams.Stream, offer Signal
 	pc.OnConnectionStateChange(func(state pion.PeerConnectionState) {
 		log.Printf("webrtc[%s] state=%s", s.Name, state.String())
 		switch state {
+		// Disconnected is deliberately not handled: it's transient (a
+		// Wi-Fi blip on the Hub bounces Disconnected → Connected), and
+		// pion promotes it to Failed on its own if it doesn't recover.
 		case pion.PeerConnectionStateFailed,
-			pion.PeerConnectionStateClosed,
-			pion.PeerConnectionStateDisconnected:
+			pion.PeerConnectionStateClosed:
 			sess.Close()
 		}
 	})
@@ -142,10 +143,6 @@ func (f *Factory) Negotiate(ctx context.Context, s *streams.Stream, offer Signal
 		sess.Close()
 		return nil, SignalingAnswer{}, errors.New("no local description after gather")
 	}
-
-	f.mu.Lock()
-	f.sessions = append(f.sessions, sess)
-	f.mu.Unlock()
 
 	return sess, SignalingAnswer{SDP: final.SDP, Type: "answer"}, nil
 }

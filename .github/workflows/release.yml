@@ -37,13 +37,19 @@ jobs:
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
 
   build:
-    name: Build & push amd64 image
+    name: Build & push image (${{ matrix.arch }})
     needs: version
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - aarch64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -53,9 +59,10 @@ jobs:
       - name: Build and push add-on image
         uses: home-assistant/builder/actions/build-image@2026.03.2
         with:
-          arch: amd64
+          arch: ${{ matrix.arch }}
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
-          image: ghcr.io/${{ github.repository_owner }}/amd64-${{ env.ADDON_SLUG }}
+          image: >-
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.arch }}-${{ env.ADDON_SLUG }}
           image-tags: |
             ${{ needs.version.outputs.version }}
             latest
@@ -76,7 +83,7 @@ jobs:
       - name: Publish multi-arch manifest
         uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.03.2
         with:
-          architectures: '["amd64"]'
+          architectures: '["amd64", "aarch64"]'
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
           image-name: ${{ env.ADDON_SLUG }}
           image-tags: |

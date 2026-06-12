@@ -8,15 +8,17 @@ updates:
     commit-message:
       prefix: "ci"
 
+  # go.mod and the Dockerfile live in the add-on subdirectory, not the
+  # repo root — pointing these at / makes Dependabot silently do nothing.
   - package-ecosystem: docker
-    directory: /
+    directory: /unifi-protect-google-home
     schedule:
       interval: weekly
     commit-message:
       prefix: "build"
 
   - package-ecosystem: gomod
-    directory: /
+    directory: /unifi-protect-google-home
     schedule:
       interval: weekly
     commit-message:

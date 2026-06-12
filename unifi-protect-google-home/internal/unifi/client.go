@@ -33,6 +33,10 @@ type Client struct {
 	cfg  config.UniFi
 	base *url.URL
 	http *http.Client
+	// tlsVerify is the effective TLS-verification policy: cfg.VerifyTLS,
+	// force-enabled for DirectConnect hosts. Shared by the HTTP transport
+	// and the events websocket dialer so the two can never diverge.
+	tlsVerify bool
 
 	mu                sync.Mutex
 	csrfToken         string
@@ -76,7 +80,7 @@ func New(cfg config.UniFi) *Client {
 			IdleConnTimeout: 90 * time.Second,
 		},
 	}
-	return &Client{cfg: cfg, base: base, http: hc}
+	return &Client{cfg: cfg, base: base, http: hc, tlsVerify: verify}
 }
 
 // Host returns the controller host (without scheme).

@@ -1,14 +1,17 @@
 ---
 name: "UniFi Protect → Google Home"
-version: "0.3.27"
+version: "0.4.0"
 slug: "unifi-protect-google-home"
 description: >-
   Bridge UniFi Protect cameras to Google Home via WebRTC (Cloud-to-Cloud CameraStream).
 url: "https://github.com/alex-savin/hassio-app-unifi-protect-google-home"
 arch:
   - amd64
+  - aarch64
 startup: services
 init: false
+# Supervisor probes /healthz and restarts the add-on if the bridge hangs.
+watchdog: "http://[HOST]:[PORT:8099]/healthz"
 # Ingress: serves the autodiscovery + setup UI inside Home Assistant.
 ingress: true
 ingress_port: 8100
@@ -64,7 +67,8 @@ schema:
   bridge:
     public_base_url: url?
     listen_addr: str
-    stream_token_secret: password
+    # Optional: blank auto-generates a strong random secret on first start.
+    stream_token_secret: password?
     consent_password: password
     agent_user_id: str
     log_level: "list(debug|info|warn|error)?"

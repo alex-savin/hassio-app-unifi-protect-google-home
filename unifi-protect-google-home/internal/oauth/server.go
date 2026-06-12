@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -30,9 +31,21 @@ import (
 )
 
 const (
-	codeTTL         = 10 * time.Minute
-	accessTokenTTL  = 60 * time.Minute
-	refreshTokenTTL = 10 * 365 * 24 * time.Hour // effectively "never expires"
+	codeTTL = 10 * time.Minute
+	// accessTokenTTL is short-lived; Google refreshes via the refresh token.
+	accessTokenTTL = 60 * time.Minute
+	// refreshTokenTTL is effectively "never expires" — Google's smart home
+	// account linking expects refresh tokens that don't lapse, otherwise
+	// the user gets silently unlinked.
+	refreshTokenTTL = 10 * 365 * 24 * time.Hour
+
+	// Consent-password brute-force limits. The endpoint is internet-exposed
+	// (Google must reach it), so failed attempts are rate limited per IP
+	// with a global backstop (X-Forwarded-For is client-controlled, so a
+	// per-IP limit alone could be rotated around).
+	pwFailWindow = 15 * time.Minute
+	pwMaxPerIP   = 5
+	pwMaxGlobal  = 20
 )
 
 // token kinds
@@ -55,8 +68,9 @@ type Server struct {
 	UserPassword string // gates the consent page; required
 	TokenSecret  []byte // HMAC-SHA256 key for signing access/refresh tokens
 
-	mu    sync.Mutex
-	codes map[string]codeEntry
+	mu      sync.Mutex
+	codes   map[string]codeEntry
+	pwFails map[string][]time.Time // failed consent attempts per client IP
 }
 
 type codeEntry struct {
@@ -73,7 +87,75 @@ func New(clientID, clientSecret, consentPassword string, tokenSecret []byte) *Se
 		UserPassword: consentPassword,
 		TokenSecret:  tokenSecret,
 		codes:        map[string]codeEntry{},
+		pwFails:      map[string][]time.Time{},
 	}
+}
+
+// validRedirectURI accepts only Google's account-linking redirector
+// (https://oauth-redirect[-sandbox].googleusercontent.com/r/<project-id>).
+// Accepting arbitrary URIs would make this internet-exposed endpoint an
+// open redirect and let an authorization code be delivered to an
+// attacker-controlled destination.
+func validRedirectURI(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	switch u.Hostname() {
+	case "oauth-redirect.googleusercontent.com",
+		"oauth-redirect-sandbox.googleusercontent.com":
+		return true
+	}
+	return false
+}
+
+// clientIP extracts the requester's IP, trusting the first X-Forwarded-For
+// hop when present (the bridge sits behind the user's reverse proxy).
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			xff = xff[:i]
+		}
+		return strings.TrimSpace(xff)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// tooManyFailures prunes expired entries and reports whether ip (or the
+// instance globally) has exceeded the failed-consent budget.
+func (s *Server) tooManyFailures(ip string) bool {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	total := 0
+	for k, ts := range s.pwFails {
+		kept := ts[:0]
+		for _, t := range ts {
+			if now.Sub(t) < pwFailWindow {
+				kept = append(kept, t)
+			}
+		}
+		if len(kept) == 0 {
+			delete(s.pwFails, k)
+			continue
+		}
+		s.pwFails[k] = kept
+		total += len(kept)
+	}
+	return len(s.pwFails[ip]) >= pwMaxPerIP || total >= pwMaxGlobal
+}
+
+func (s *Server) recordFailure(ip string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pwFails == nil {
+		s.pwFails = map[string][]time.Time{}
+	}
+	s.pwFails[ip] = append(s.pwFails[ip], time.Now())
 }
 
 // Authorize handles GET/POST /oauth/authorize.
@@ -99,6 +181,10 @@ func (s *Server) Authorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing redirect_uri", http.StatusBadRequest)
 		return
 	}
+	if !validRedirectURI(redirectURI) {
+		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
+		return
+	}
 
 	if r.Method == http.MethodGet {
 		_ = consentTpl.Execute(w, consentData{
@@ -113,8 +199,14 @@ func (s *Server) Authorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
+	ip := clientIP(r)
+	if s.tooManyFailures(ip) {
+		http.Error(w, "too many failed attempts — try again later", http.StatusTooManyRequests)
+		return
+	}
 	pw := r.PostFormValue("password")
 	if subtle.ConstantTimeCompare([]byte(pw), []byte(s.UserPassword)) != 1 {
+		s.recordFailure(ip)
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = consentTpl.Execute(w, consentData{
 			ClientID:    clientID,
@@ -141,7 +233,9 @@ func (s *Server) Authorize(w http.ResponseWriter, r *http.Request) {
 		rq.Set("state", state)
 	}
 	u.RawQuery = rq.Encode()
-	http.Redirect(w, r, u.String(), http.StatusFound)
+	// Not an open redirect: redirectURI was validated against Google's
+	// fixed account-linking hosts by validRedirectURI above.
+	http.Redirect(w, r, u.String(), http.StatusFound) //nolint:gosec
 }
 
 // Token handles POST /oauth/token.

@@ -64,13 +64,21 @@ func (c *Client) SubscribeEvents(ctx context.Context, lastUpdateID string) (<-ch
 	c.mu.Unlock()
 
 	dialer := *websocket.DefaultDialer
-	dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: !c.cfg.VerifyTLS} //nolint:gosec
+	dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: !c.tlsVerify} //nolint:gosec
 	dialer.HandshakeTimeout = 15 * time.Second
 	dialer.Jar = c.http.Jar
 
 	conn, resp, err := dialer.DialContext(ctx, u.String(), hdr)
 	if err != nil {
 		if resp != nil {
+			// An auth rejection means the session cookie has expired —
+			// mark it invalid so the next attempt re-logins instead of
+			// re-dialing forever with the same dead cookie.
+			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				c.mu.Lock()
+				c.loggedIn = false
+				c.mu.Unlock()
+			}
 			b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 			_ = resp.Body.Close()
 			return nil, fmt.Errorf("ws dial: %s: %s", resp.Status, strings.TrimSpace(string(b)))

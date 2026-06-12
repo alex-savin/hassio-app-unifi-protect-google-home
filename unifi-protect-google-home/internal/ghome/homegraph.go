@@ -30,6 +30,10 @@ import (
 	"time"
 )
 
+// Public Google API endpoints and the standard JWT-bearer grant URN —
+// not credentials, despite the "token" substrings.
+//
+//nolint:gosec
 const (
 	homeGraphScope     = "https://www.googleapis.com/auth/homegraph"
 	googleTokenURL     = "https://oauth2.googleapis.com/token"

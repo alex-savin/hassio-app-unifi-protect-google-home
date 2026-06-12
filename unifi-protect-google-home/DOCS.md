@@ -37,17 +37,19 @@ post-rename re-syncs are skipped.
 |-----------------------|----------|----------|------------------------------------------------------------------------------|
 | `public_base_url`     | url      | yes      | Public HTTPS URL (used in signed signaling URLs and OAuth redirect)          |
 | `listen_addr`         | string   | yes      | Listen address (default `0.0.0.0:8099`)                                      |
-| `stream_token_secret` | password | yes      | HMAC secret for signing per-camera signaling URLs                            |
-| `consent_password`    | password | yes      | Password shown on the OAuth consent page                                     |
+| `stream_token_secret` | password | no       | Master HMAC secret for signing stream URLs and OAuth tokens. Leave blank — the bridge generates and persists a strong random secret on first start |
+| `consent_password`    | password | yes      | Password shown on the OAuth consent page (minimum 8 characters)              |
 | `agent_user_id`       | string   | yes      | Stable opaque ID for the linked user (default `unifi-protect-bridge`)        |
 | `log_level`           | enum     | no       | `debug`, `info`, `warn`, or `error` (default `info`)                         |
+| `exposed_cameras`     | list     | no       | Allow-list of camera IDs advertised to Google Home; empty = all cameras. Manageable from the ingress setup UI without a restart |
+| `ws_event_log`        | enum     | no       | Protect websocket log verbosity: `off`, `interesting` (default), or `all`    |
 
 ## Google Cloud / Actions Console setup
 
 1. Create a project at <https://console.cloud.google.com>.
 2. Enable the **HomeGraph API**.
 3. In the **Actions on Google Console**, create a **Smart Home** project.
-4. Set the **fulfillment URL** to `<public_base_url>/google/smarthome`.
+4. Set the **fulfillment URL** to `<public_base_url>/smarthome`.
 5. Create OAuth credentials:
    - **Authorization URL**: `<public_base_url>/oauth/authorize`
    - **Token URL**: `<public_base_url>/oauth/token`
@@ -59,27 +61,24 @@ post-rename re-syncs are skipped.
 
 ## Ports
 
-- `8099/tcp` — HTTP endpoint (fulfillment, OAuth, WebRTC signaling). Put a
-  reverse proxy in front (NGINX Proxy Manager, Cloudflare Tunnel, HA's own
-  reverse proxy, etc.) so that `public_base_url` resolves to it over HTTPS.
+- `8099/tcp` (container) — HTTP endpoint (fulfillment, OAuth, WebRTC
+  signaling). Mapped to host port **8199** by default. Put a reverse proxy
+  in front (NGINX Proxy Manager, Cloudflare Tunnel, HA's own reverse proxy,
+  etc.) pointing at host port 8199 so that `public_base_url` resolves to it
+  over HTTPS.
 
 ## Finding your UniFi console
 
-The easiest way is the **built-in setup UI**. Open the add-on page in Home
-Assistant and click **Open Web UI** (or use the *UniFi Protect* entry in
-the sidebar). The page scans the local network via UBNT UDP discovery,
-lists every console it finds, lets you pick one, validates the credentials
-against the Protect API, and writes the result back into the add-on
-options — followed by an automatic restart. No YAML editing required.
+Use the **built-in setup UI**. Open the add-on page in Home Assistant and
+click **Open Web UI** (or use the *UniFi Protect* entry in the sidebar).
+The page scans the local network via UBNT UDP discovery, lists every
+console it finds, lets you pick one, validates the credentials against the
+Protect API, and writes the result back into the add-on options — followed
+by an automatic restart. No YAML editing required.
 
-If you prefer to script it, the bridge also exposes the raw discovery
-endpoint on the public port:
-
-```bash
-curl http://homeassistant.local:8099/admin/discover
-```
-
-Returns JSON like `{"devices":[{"source_ip":"192.168.1.1","hw_addr":"...","hostname":"UDM-Pro","version":"3.2.12",...}]}`.
+Discovery is only available through the ingress UI: the public port serves
+exclusively the internet-facing endpoints Google needs (fulfillment, OAuth,
+signed stream URLs), so it deliberately exposes no LAN-scanning routes.
 
 ## Troubleshooting
 
@@ -89,5 +88,7 @@ Returns JSON like `{"devices":[{"source_ip":"192.168.1.1","hw_addr":"...","hostn
 - **Stream times out** — Verify your reverse proxy passes through WebSocket
   upgrades and that `public_base_url` is reachable from Google's servers.
 - **OAuth fails** — Confirm the client ID/secret match the Actions Console
-  values and that the redirect URI is exactly
-  `<public_base_url>/oauth/callback`.
+  values. The redirect URI is Google's own
+  (`https://oauth-redirect.googleusercontent.com/r/<project-id>`); the
+  bridge only accepts redirects to that host, so no redirect URI needs to
+  be configured on the bridge side.

@@ -40,7 +40,6 @@ import (
 	"github.com/bluenviron/gortsplib/v4/pkg/base"
 	"github.com/bluenviron/gortsplib/v4/pkg/description"
 	"github.com/bluenviron/gortsplib/v4/pkg/format"
-	"github.com/bluenviron/gortsplib/v4/pkg/format/rtph264"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4/seekablebuffer"
@@ -84,19 +83,18 @@ type Muxer struct {
 	cancelUp   context.CancelFunc
 	subs       map[chan []byte]struct{}
 
-	// emit-loop state, only touched on the demux goroutine
-	sps, pps      []byte
-	haveFirstTS   bool
-	firstTS       uint32
-	lastSamplePTS int64
-	pendingAU     [][]byte
-	pendingPTS    int64
-	pendingIsIDR  bool
-	havePending   bool
-	baseTime      uint64
-	seqNum        uint32
-
 	lastAccessNs atomic.Int64
+}
+
+// timedAU is one decoded access unit plus its RTP timestamp, handed from
+// the RTP callback to the demux goroutine. All other muxing state lives as
+// locals of runDemux, so the RTP callback never has to take m.mu —
+// gortsplib's Client.Close blocks until in-flight callbacks return, and
+// stopLocked calls Close while holding m.mu, so a callback that locked
+// m.mu would deadlock.
+type timedAU struct {
+	ts uint32
+	au [][]byte
 }
 
 // NewMuxer returns an idle Muxer for the given camera.
@@ -120,16 +118,16 @@ func (m *Muxer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Wait briefly for the init segment to be built (gortsplib has to
-	// receive an IDR and pull SPS/PPS).
-	initBytes, err := m.waitInit(r.Context(), 5*time.Second)
-	if err != nil {
-		http.Error(w, "stream warming up", http.StatusServiceUnavailable)
-		return
-	}
-
+	// Register before waiting for init so the session can never stop
+	// without closing our channel: stopLocked closes every registered
+	// subscriber, and registration refuses sessions that already stopped.
 	ch := make(chan []byte, subChanCap)
 	m.mu.Lock()
+	if !m.started {
+		m.mu.Unlock()
+		http.Error(w, "stream restarting", http.StatusServiceUnavailable)
+		return
+	}
 	m.subs[ch] = struct{}{}
 	m.mu.Unlock()
 	defer func() {
@@ -137,6 +135,14 @@ func (m *Muxer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		delete(m.subs, ch)
 		m.mu.Unlock()
 	}()
+
+	// Wait briefly for the init segment to be built (gortsplib has to
+	// receive an IDR and pull SPS/PPS).
+	initBytes, err := m.waitInit(r.Context(), 5*time.Second)
+	if err != nil {
+		http.Error(w, "stream warming up", http.StatusServiceUnavailable)
+		return
+	}
 
 	flusher, _ := w.(http.Flusher)
 	w.Header().Set("Content-Type", "video/mp4")
@@ -217,12 +223,6 @@ func (m *Muxer) stopLocked() {
 		delete(m.subs, ch)
 	}
 	m.initBytes = nil
-	m.sps, m.pps = nil, nil
-	m.haveFirstTS = false
-	m.havePending = false
-	m.baseTime = 0
-	m.seqNum = 0
-	m.lastSamplePTS = 0
 	m.started = false
 }
 
@@ -263,7 +263,7 @@ func (m *Muxer) startLocked() error {
 	var videoFormat *format.H264
 	for _, medi := range desc.Medias {
 		for _, forma := range medi.Formats {
-			if h := forma.(*format.H264); h != nil {
+			if h, ok := forma.(*format.H264); ok {
 				videoMedia = medi
 				videoFormat = h
 				break
@@ -287,19 +287,22 @@ func (m *Muxer) startLocked() error {
 		return fmt.Errorf("create h264 decoder: %w", err)
 	}
 
-	m.sps = append(m.sps[:0], videoFormat.SPS...)
-	m.pps = append(m.pps[:0], videoFormat.PPS...)
-
+	// The callback only decodes and hands off; see timedAU for why it
+	// must not touch m.mu. Drop-on-full keeps a stalled demux goroutine
+	// from ever blocking the RTSP read loop.
+	auCh := make(chan timedAU, subChanCap)
 	c.OnPacketRTP(videoMedia, videoFormat, func(pkt *rtp.Packet) {
 		au, err := rtpDec.Decode(pkt)
 		if err != nil {
-			if errors.Is(err, rtph264.ErrMorePacketsNeeded) ||
-				errors.Is(err, rtph264.ErrNonStartingPacketAndNoPrevious) {
-				return
-			}
+			// Incomplete fragments and decode hiccups alike: skip and
+			// resync on a later packet.
 			return
 		}
-		m.handleAU(pkt.Timestamp, au)
+		select {
+		case auCh <- timedAU{ts: pkt.Timestamp, au: cloneAU(au)}:
+		default:
+			// demux backed up; drop — subscribers recover at the next IDR.
+		}
 	})
 
 	if _, err := c.Play(nil); err != nil {
@@ -313,74 +316,111 @@ func (m *Muxer) startLocked() error {
 	m.started = true
 	m.lastAccessNs.Store(time.Now().UnixNano())
 
+	go m.runDemux(upCtx, auCh,
+		append([]byte(nil), videoFormat.SPS...),
+		append([]byte(nil), videoFormat.PPS...))
 	go m.runReadLoop(upCtx, c)
 	go m.runIdleWatchdog(upCtx)
 
-	log.Printf("mp4[%s] started (progressive fMP4, %d-byte SPS)", m.StreamID, len(m.sps))
+	log.Printf("mp4[%s] started (progressive fMP4, %d-byte SPS)", m.StreamID, len(videoFormat.SPS))
 	return nil
 }
 
-// handleAU is called on the gortsplib read goroutine for every assembled
-// access unit. It buffers one AU so we can backfill its Duration once the
-// next AU arrives, then emits a single-sample fMP4 Part to every
-// subscriber. The init segment is built the first time we see an IDR
-// (we need SPS/PPS bytes baked into the moov).
-func (m *Muxer) handleAU(rtpTS uint32, au [][]byte) {
-	au = injectParamSets(au, m.sps, m.pps)
-
-	if !m.haveFirstTS {
-		m.firstTS = rtpTS
-		m.haveFirstTS = true
-	}
-	// Signed delta handles 32-bit wrap.
-	pts := int64(int32(rtpTS - m.firstTS)) //nolint:gosec
-
-	if m.initBytes == nil {
-		if err := m.buildInit(); err != nil {
-			log.Printf("mp4[%s] build init: %v", m.StreamID, err)
+// runDemux owns all per-session muxing state as locals, so nothing here
+// races with stopLocked. It buffers one AU so its Duration can be
+// backfilled once the next AU arrives, then emits a single-sample fMP4
+// Part to every subscriber. The init segment is built as soon as SPS/PPS
+// are known — from the SDP, or harvested in-band for cameras that omit
+// sprop-parameter-sets.
+func (m *Muxer) runDemux(ctx context.Context, auCh <-chan timedAU, sps, pps []byte) {
+	var (
+		initBuilt    bool
+		haveFirstTS  bool
+		lastRawTS    uint32
+		pts          int64
+		pendingAU    [][]byte
+		pendingPTS   int64
+		pendingIsIDR bool
+		havePending  bool
+		baseTime     uint64
+		seqNum       uint32
+	)
+	for {
+		var tau timedAU
+		select {
+		case <-ctx.Done():
 			return
+		case tau = <-auCh:
 		}
+
+		for _, nalu := range tau.au {
+			if len(nalu) == 0 {
+				continue
+			}
+			switch h264.NALUType(nalu[0] & 0x1F) {
+			case h264.NALUTypeSPS:
+				sps = append(sps[:0], nalu...)
+			case h264.NALUTypePPS:
+				pps = append(pps[:0], nalu...)
+			}
+		}
+
+		au := injectParamSets(tau.au, sps, pps)
+
+		// Accumulating signed deltas keeps the PTS monotonic across the
+		// 32-bit RTP timestamp wrap (~6.6 h at 90 kHz).
+		if !haveFirstTS {
+			lastRawTS = tau.ts
+			haveFirstTS = true
+		}
+		pts += int64(int32(tau.ts - lastRawTS)) //nolint:gosec
+		lastRawTS = tau.ts
+
+		if !initBuilt {
+			if len(sps) == 0 || len(pps) == 0 {
+				continue // can't build moov until parameter sets arrive
+			}
+			if err := m.publishInit(ctx, sps, pps); err != nil {
+				log.Printf("mp4[%s] build init: %v", m.StreamID, err)
+				continue
+			}
+			initBuilt = true
+		}
+
+		isIDR := containsIDR(au)
+		if !havePending {
+			pendingAU, pendingPTS, pendingIsIDR = au, pts, isIDR
+			havePending = true
+			continue
+		}
+
+		// Backfill duration from the gap to this AU.
+		duration := pts - pendingPTS
+		if duration <= 0 {
+			// Out-of-order or duplicate PTS; assume 1/30 s.
+			duration = h264Timescale / 30
+		}
+
+		seqNum++
+		if err := m.emitFragment(ctx, pendingAU, baseTime, seqNum, uint32(duration), pendingIsIDR); err != nil {
+			log.Printf("mp4[%s] emit: %v", m.StreamID, err)
+		}
+		baseTime += uint64(duration)
+		pendingAU, pendingPTS, pendingIsIDR = au, pts, isIDR
 	}
-
-	isIDR := containsIDR(au)
-
-	if !m.havePending {
-		m.pendingAU = cloneAU(au)
-		m.pendingPTS = pts
-		m.pendingIsIDR = isIDR
-		m.havePending = true
-		return
-	}
-
-	// Backfill duration from the gap to this AU.
-	duration := pts - m.pendingPTS
-	if duration <= 0 {
-		// Out-of-order or duplicate PTS; assume 1/30 s.
-		duration = h264Timescale / 30
-	}
-
-	if err := m.emitFragment(m.pendingAU, uint32(duration), m.pendingIsIDR); err != nil {
-		log.Printf("mp4[%s] emit: %v", m.StreamID, err)
-	}
-	m.baseTime += uint64(duration)
-	m.lastSamplePTS = m.pendingPTS
-
-	m.pendingAU = cloneAU(au)
-	m.pendingPTS = pts
-	m.pendingIsIDR = isIDR
 }
 
-// buildInit constructs the ftyp+moov initialization segment from the
-// current SPS/PPS. Called once at the start of the stream.
-func (m *Muxer) buildInit() error {
+// publishInit constructs the ftyp+moov initialization segment and makes it
+// visible to waitInit, unless the session was stopped in the meantime.
+func (m *Muxer) publishInit(ctx context.Context, sps, pps []byte) error {
 	init := &fmp4.Init{
 		Tracks: []*fmp4.InitTrack{
 			{
 				ID:        1,
 				TimeScale: h264Timescale,
 				Codec: &mp4codecs.H264{
-					SPS: append([]byte(nil), m.sps...),
-					PPS: append([]byte(nil), m.pps...),
+					SPS: append([]byte(nil), sps...),
+					PPS: append([]byte(nil), pps...),
 				},
 			},
 		},
@@ -389,14 +429,21 @@ func (m *Muxer) buildInit() error {
 	if err := init.Marshal(&buf); err != nil {
 		return fmt.Errorf("marshal init: %w", err)
 	}
-	m.initBytes = buf.Bytes()
+	m.mu.Lock()
+	if ctx.Err() == nil {
+		m.initBytes = buf.Bytes()
+	}
+	m.mu.Unlock()
 	return nil
 }
 
 // emitFragment serialises one access unit as a fMP4 Part (moof+mdat) and
 // fans it out to every current subscriber. Drops the fragment for slow
 // subscribers rather than blocking — they'll recover from the next IDR.
-func (m *Muxer) emitFragment(au [][]byte, duration uint32, isIDR bool) error {
+// stopLocked cancels ctx while holding m.mu, so checking ctx under m.mu
+// guarantees a straggling fragment can never reach a newer session's
+// subscribers.
+func (m *Muxer) emitFragment(ctx context.Context, au [][]byte, baseTime uint64, seqNum, duration uint32, isIDR bool) error {
 	sample := &fmp4.Sample{}
 	if err := sample.FillH264(0, au); err != nil {
 		return fmt.Errorf("fill sample: %w", err)
@@ -404,13 +451,12 @@ func (m *Muxer) emitFragment(au [][]byte, duration uint32, isIDR bool) error {
 	sample.Duration = duration
 	sample.IsNonSyncSample = !isIDR
 
-	m.seqNum++
 	part := &fmp4.Part{
-		SequenceNumber: m.seqNum,
+		SequenceNumber: seqNum,
 		Tracks: []*fmp4.PartTrack{
 			{
 				ID:       1,
-				BaseTime: m.baseTime,
+				BaseTime: baseTime,
 				Samples:  []*fmp4.Sample{sample},
 			},
 		},
@@ -422,6 +468,10 @@ func (m *Muxer) emitFragment(au [][]byte, duration uint32, isIDR bool) error {
 	data := buf.Bytes()
 
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ctx.Err() != nil {
+		return nil
+	}
 	for ch := range m.subs {
 		select {
 		case ch <- data:
@@ -429,7 +479,6 @@ func (m *Muxer) emitFragment(au [][]byte, duration uint32, isIDR bool) error {
 			// subscriber backed up; drop.
 		}
 	}
-	m.mu.Unlock()
 	return nil
 }
 
@@ -465,14 +514,22 @@ func (m *Muxer) runIdleWatchdog(ctx context.Context) {
 				continue
 			}
 			last := time.Unix(0, m.lastAccessNs.Load())
-			if time.Since(last) > idleTimeout {
-				m.mu.Lock()
-				if m.started && len(m.subs) == 0 &&
-					time.Since(time.Unix(0, m.lastAccessNs.Load())) > idleTimeout {
-					log.Printf("mp4[%s] idle %s — stopping upstream", m.StreamID, idleTimeout)
-					m.stopLocked()
-				}
-				m.mu.Unlock()
+			if time.Since(last) <= idleTimeout {
+				continue
+			}
+			m.mu.Lock()
+			stopped := false
+			if m.started && len(m.subs) == 0 &&
+				time.Since(time.Unix(0, m.lastAccessNs.Load())) > idleTimeout {
+				log.Printf("mp4[%s] idle %s — stopping upstream", m.StreamID, idleTimeout)
+				m.stopLocked()
+				stopped = true
+			}
+			m.mu.Unlock()
+			// Only exit once the session is actually stopped — a subscriber
+			// may have re-attached between the unlocked check and the lock,
+			// in which case this watchdog must keep watching.
+			if stopped {
 				return
 			}
 		}
