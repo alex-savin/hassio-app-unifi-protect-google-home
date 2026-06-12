@@ -10,8 +10,9 @@ arch:
   - aarch64
 startup: services
 init: false
-# Supervisor probes /healthz and restarts the add-on if the bridge hangs.
-watchdog: "http://[HOST]:[PORT:8099]/healthz"
+# Liveness is the Docker HEALTHCHECK in the Dockerfile (the add-on linter
+# rejects the obsolete `watchdog` key); it probes /healthz on the public
+# server with a setup-UI fallback.
 # Ingress: serves the autodiscovery + setup UI inside Home Assistant.
 ingress: true
 ingress_port: 8100

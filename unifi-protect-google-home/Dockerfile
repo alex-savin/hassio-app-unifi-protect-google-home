@@ -1,4 +1,10 @@
 # syntax=docker/dockerfile:1.7
+# BUILD_FROM is injected by the HA builder from build.yaml; the default
+# keeps plain `docker build` working locally. Declared before the first
+# FROM so it is global — an ARG between stages would be scoped to the
+# build stage and leave the runtime FROM blank.
+ARG BUILD_FROM=ghcr.io/home-assistant/base:3.22
+
 # ---------------------------------------------------------------------------
 # Build stage: compile the Go bridge as a static, stripped binary.
 # ---------------------------------------------------------------------------
@@ -17,10 +23,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/bridge ./cmd/bridg
 
 # ---------------------------------------------------------------------------
 # Runtime stage: Home Assistant per-arch base image (provides s6-overlay,
-# bashio, and the Alpine userland). BUILD_FROM is injected by the HA builder
-# from build.yaml; the default keeps plain `docker build` working locally.
+# bashio, and the Alpine userland).
 # ---------------------------------------------------------------------------
-ARG BUILD_FROM=ghcr.io/home-assistant/base:3.22
 # hadolint ignore=DL3006
 FROM ${BUILD_FROM}
 
@@ -52,5 +56,11 @@ LABEL \
 # Copy the bridge binary and the S6 service tree (run / finish).
 COPY --from=build /out/bridge /usr/local/bin/bridge
 COPY rootfs /
+
+# The public bridge serves /healthz on 8099 once configured; in setup-only
+# mode (no valid config yet) only the ingress setup UI on 8100 is up, so
+# probe both — a half-configured add-on must not flap as unhealthy.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -fs http://127.0.0.1:8099/healthz || curl -fs http://127.0.0.1:8100/ || exit 1
 
 # S6-overlay (provided by the HA base image) supervises /etc/services.d/*; no CMD needed.
