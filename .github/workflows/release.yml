@@ -57,7 +57,7 @@ jobs:
           ref: ${{ github.event.inputs.ref || github.ref }}
 
       - name: Build and push add-on image
-        uses: home-assistant/builder/actions/build-image@2026.03.2
+        uses: home-assistant/builder/actions/build-image@2026.06.0
         with:
           arch: ${{ matrix.arch }}
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
@@ -81,7 +81,7 @@ jobs:
       packages: write
     steps:
       - name: Publish multi-arch manifest
-        uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.03.2
+        uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.06.0
         with:
           architectures: '["amd64", "aarch64"]'
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
