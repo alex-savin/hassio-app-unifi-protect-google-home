@@ -9,7 +9,7 @@ require (
 	github.com/bluenviron/gortsplib/v4 v4.16.2
 	github.com/bluenviron/mediacommon/v2 v2.9.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/pion/rtp v1.10.2
+	github.com/pion/rtp v1.10.4
 	github.com/pion/webrtc/v4 v4.2.16
 )
 
