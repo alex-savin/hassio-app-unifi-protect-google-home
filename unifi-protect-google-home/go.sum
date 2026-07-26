@@ -5,12 +5,12 @@ github.com/asticode/go-astikit v0.59.0 h1:tjbwDym+MTSxqkAhJoHRZmHMXK6Jv4vGx+97Fp
 github.com/asticode/go-astikit v0.59.0/go.mod h1:fV43j20UZYfXzP9oBn33udkvCvDvCDhzjVqoLFuuYZE=
 github.com/asticode/go-astits v1.15.0 h1:yRyCiUc8Jj4F7clt2GDxHghMpWuFL5rkaLuGUd2/0J4=
 github.com/asticode/go-astits v1.15.0/go.mod h1:QSHmknZ51pf6KJdHKZHJTLlMegIrhega3LPWz3ND/iI=
-github.com/bluenviron/gohlslib/v2 v2.4.0 h1:O0bmUvyOMVPuRx3givLqfGWUzOKicKwkSCInpGxsXQA=
-github.com/bluenviron/gohlslib/v2 v2.4.0/go.mod h1:iqU6QJ5geVuCDpUeAbK/Si2RtDC3ocBTp8LnPHBkN6U=
+github.com/bluenviron/gohlslib/v2 v2.4.1 h1:nByg/1LdwhQHTQO1Ka0QQDTWP1lTVsLBDKdbUOwf5pI=
+github.com/bluenviron/gohlslib/v2 v2.4.1/go.mod h1:oWuUkEnWqDJ1FpC+i+NXef8/y8DE76IlAzryzhyDqwE=
 github.com/bluenviron/gortsplib/v4 v4.16.2 h1:10HaMsorjW13gscLp3R7Oj41ck2i1EHIUYCNWD2wpkI=
 github.com/bluenviron/gortsplib/v4 v4.16.2/go.mod h1:Vm07yUMys9XKnuZJLfTT8zluAN2n9ZOtz40Xb8RKh+8=
-github.com/bluenviron/mediacommon/v2 v2.9.1 h1:GpNnZgBwAamQO9ZE+JbNkQo82N1Jh/koSSfg7mf6QQk=
-github.com/bluenviron/mediacommon/v2 v2.9.1/go.mod h1:jMf/OJDaJl02xRgkLM2zbidUHnDYqLnO1dMMveCmyyU=
+github.com/bluenviron/mediacommon/v2 v2.9.2 h1:jvYeBjvhHKFOBRMTMm4hvrSjyOlCelkOkx6708DidQM=
+github.com/bluenviron/mediacommon/v2 v2.9.2/go.mod h1:jMf/OJDaJl02xRgkLM2zbidUHnDYqLnO1dMMveCmyyU=
 github.com/creack/pty v1.1.7/go.mod h1:lj5s0c3V2DBrqTV7llrYr5NG6My20zk30Fl46Y7DoTY=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
