@@ -7,7 +7,7 @@ require (
 	// v4.16.2 is the last real v4 release — v4.16.3 is a gutted
 	// deprecation stub with no packages. Do not bump; migrate to /v5.
 	github.com/bluenviron/gortsplib/v4 v4.16.2
-	github.com/bluenviron/mediacommon/v2 v2.9.1
+	github.com/bluenviron/mediacommon/v2 v2.9.2
 	github.com/gorilla/websocket v1.5.3
 	github.com/pion/rtp v1.10.4
 	github.com/pion/webrtc/v4 v4.2.17
