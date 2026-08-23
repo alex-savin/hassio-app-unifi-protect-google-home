@@ -8,7 +8,7 @@ ARG BUILD_FROM=ghcr.io/home-assistant/base:3.22
 # ---------------------------------------------------------------------------
 # Build stage: compile the Go bridge as a static, stripped binary.
 # ---------------------------------------------------------------------------
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 
 # Cache dependencies separately from source.
