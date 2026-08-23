@@ -7,7 +7,7 @@ require (
 	// v4.16.2 is the last real v4 release — v4.16.3 is a gutted
 	// deprecation stub with no packages. Do not bump; migrate to /v5.
 	github.com/bluenviron/gortsplib/v4 v4.16.2
-	github.com/bluenviron/mediacommon/v2 v2.9.1
+	github.com/bluenviron/mediacommon/v2 v2.9.3
 	github.com/gorilla/websocket v1.5.3
 	github.com/pion/rtp v1.10.4
 	github.com/pion/webrtc/v4 v4.2.17
@@ -16,7 +16,7 @@ require (
 require (
 	github.com/abema/go-mp4 v1.7.1 // indirect
 	github.com/asticode/go-astikit v0.59.0 // indirect
-	github.com/asticode/go-astits v1.15.0 // indirect
+	github.com/asticode/go-astits v1.16.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/pion/datachannel v1.6.2 // indirect
 	github.com/pion/dtls/v3 v3.1.5 // indirect
