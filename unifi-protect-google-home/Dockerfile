@@ -61,6 +61,6 @@ COPY rootfs /
 # mode (no valid config yet) only the ingress setup UI on 8100 is up, so
 # probe both — a half-configured add-on must not flap as unhealthy.
 HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -fs http://127.0.0.1:8099/healthz || curl -fs http://127.0.0.1:8100/ || exit 1
+    CMD ["/bin/sh", "-c", "curl -fs http://127.0.0.1:8099/healthz || curl -fs http://127.0.0.1:8100/ || exit 1"]
 
 # S6-overlay (provided by the HA base image) supervises /etc/services.d/*; no CMD needed.
