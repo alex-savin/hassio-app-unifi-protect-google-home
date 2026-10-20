@@ -1,3 +1,25 @@
+## 0.5.0
+
+Security and reliability fixes from a follow-up code review, plus a migration of the RTSP client library and refreshed dependencies.
+
+### Security
+
+- **Hiding a camera now really stops its streams.** 0.4.0 checked the allow-list only when a camera's HLS/MP4 pipeline was first created, so links already handed out kept streaming for up to an hour, and a signed WebRTC signaling URL could still start a session. Every request is now checked, and hiding a camera immediately disconnects its HLS/MP4 viewers.
+- **The setup UI only accepts requests through Home Assistant ingress.** It listens on all interfaces and has no login of its own, so any container on the hassio network could previously rewrite the add-on options and restart it.
+- **The public listener rejects slow and oversized requests.** It now has read and idle timeouts, and request bodies are capped (OAuth 64 KB, fulfillment 1 MB, WebRTC offer 256 KB), so a client can no longer tie up connections by sending a request byte by byte.
+
+### Reliability
+
+- **Changed RTSP addresses are picked up without a restart.** Turning RTSP off and on for a camera in Protect issues a new stream address. The bridge used to keep dialing the old, dead one until it was restarted. Cameras whose RTSP gets disabled, or that are removed from Protect, are now unregistered completely.
+- **Camera refreshes no longer overlap.** The periodic refresh and the websocket-triggered refresh could run at the same time, which caused duplicate HomeGraph syncs and briefly reported a camera that had just gone offline as online again.
+- **Viewers who drop off are disconnected within seconds.** A phone that leaves Wi-Fi without closing its MP4 stream used to keep the camera feed open for up to ~15 minutes.
+
+### Internals & project
+
+- Migrated from `gortsplib/v4` (frozen; its last tag was an empty stub) to `gortsplib/v5`. New end-to-end tests stream H.264 from an in-process RTSPS camera through the real RTSP client, the HLS muxer and the MP4 muxer.
+- Updated Go dependencies (pion/webrtc 4.2.24, gohlslib 2.4.6, mediacommon 2.9.6, golang.org/x/*) and replaced an MP4 helper that mediacommon has deprecated.
+- Runtime base image moved from Alpine 3.22 to 3.24.
+
 ## 0.4.0
 
 Hardening release: a full-codebase review (security, media pipeline, control plane, project hygiene) fixed every confirmed finding.

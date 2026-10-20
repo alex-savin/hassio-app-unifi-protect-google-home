@@ -3,7 +3,7 @@
 # keeps plain `docker build` working locally. Declared before the first
 # FROM so it is global — an ARG between stages would be scoped to the
 # build stage and leave the runtime FROM blank.
-ARG BUILD_FROM=ghcr.io/home-assistant/base:3.22
+ARG BUILD_FROM=ghcr.io/home-assistant/base:3.24
 
 # ---------------------------------------------------------------------------
 # Build stage: compile the Go bridge as a static, stripped binary.

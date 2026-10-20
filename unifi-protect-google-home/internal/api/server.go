@@ -37,15 +37,37 @@ type Server struct {
 	WebRTC   *wrtc.Factory
 	HLS      *hls.Server
 	MP4      *mp4srv.Server
+
+	// Allowed reports whether a camera is currently exposed to Google.
+	// Checked on every signaling request so a URL minted just before the
+	// user hid the camera cannot start a session. nil allows all.
+	Allowed func(camID string) bool
+}
+
+// Request body caps for the public endpoints. Generous for real traffic
+// (an SDP offer is a few KB, an intent request rarely tens of KB) while
+// keeping a hostile client from streaming an unbounded body.
+const (
+	maxOAuthBody  = 64 << 10
+	maxIntentBody = 1 << 20
+	maxSignalBody = 256 << 10
+)
+
+// limitBody caps the request body at n bytes.
+func limitBody(n int64, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, n)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Routes returns an http.Handler with all endpoints mounted.
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/oauth/authorize", s.OAuth.Authorize)
-	mux.HandleFunc("/oauth/token", s.OAuth.Token)
-	mux.Handle("/smarthome", s.authMiddleware(s.Fulfill))
-	mux.HandleFunc("/webrtc/signal", s.signalHandler)
+	mux.Handle("/oauth/authorize", limitBody(maxOAuthBody, http.HandlerFunc(s.OAuth.Authorize)))
+	mux.Handle("/oauth/token", limitBody(maxOAuthBody, http.HandlerFunc(s.OAuth.Token)))
+	mux.Handle("/smarthome", s.authMiddleware(limitBody(maxIntentBody, s.Fulfill)))
+	mux.Handle("/webrtc/signal", limitBody(maxSignalBody, http.HandlerFunc(s.signalHandler)))
 	if s.HLS != nil {
 		mux.HandleFunc("/hls/", s.hlsHandler)
 	}
@@ -162,7 +184,7 @@ func (s *Server) signalHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stream, ok := s.Registry.Get(camID)
-	if !ok {
+	if !ok || (s.Allowed != nil && !s.Allowed(camID)) {
 		http.Error(w, "unknown camera", http.StatusNotFound)
 		return
 	}

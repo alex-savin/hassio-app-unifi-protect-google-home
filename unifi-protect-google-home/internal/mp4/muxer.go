@@ -36,10 +36,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bluenviron/gortsplib/v4"
-	"github.com/bluenviron/gortsplib/v4/pkg/base"
-	"github.com/bluenviron/gortsplib/v4/pkg/description"
-	"github.com/bluenviron/gortsplib/v4/pkg/format"
+	"github.com/bluenviron/gortsplib/v5"
+	"github.com/bluenviron/gortsplib/v5/pkg/base"
+	"github.com/bluenviron/gortsplib/v5/pkg/description"
+	"github.com/bluenviron/gortsplib/v5/pkg/format"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4"
 	"github.com/bluenviron/mediacommon/v2/pkg/formats/fmp4/seekablebuffer"
@@ -62,6 +62,9 @@ const (
 	// than blocking the demux goroutine, which would stall every other
 	// viewer of the same camera. 64 fragments at ~30 fps ≈ 2 s of slack.
 	subChanCap = 64
+
+	// writeTimeout bounds a single fragment write to a subscriber.
+	writeTimeout = 10 * time.Second
 )
 
 // Source resolves a camera ID to the upstream RTSP URL. Returning
@@ -144,18 +147,31 @@ func (m *Muxer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flusher, _ := w.(http.Flusher)
+	// Each write gets its own deadline so a client that vanished without
+	// closing the socket (phone dropped off Wi-Fi) is detached in seconds
+	// rather than after the kernel's TCP timeout, releasing the upstream.
+	// SetWriteDeadline errors only when the writer doesn't support
+	// deadlines (tests); ignore it.
+	rc := http.NewResponseController(w)
+	write := func(b []byte) error {
+		_ = rc.SetWriteDeadline(time.Now().Add(writeTimeout))
+		if _, err := w.Write(b); err != nil {
+			return err
+		}
+		if err := rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return err
+		}
+		return nil
+	}
+
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Connection", "close")
 	w.WriteHeader(http.StatusOK)
 
-	if _, err := w.Write(initBytes); err != nil {
+	if err := write(initBytes); err != nil {
 		return
-	}
-	if flusher != nil {
-		flusher.Flush()
 	}
 
 	ctx := r.Context()
@@ -167,11 +183,8 @@ func (m *Muxer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if _, err := w.Write(b); err != nil {
+			if err := write(b); err != nil {
 				return
-			}
-			if flusher != nil {
-				flusher.Flush()
 			}
 		}
 	}
@@ -244,14 +257,14 @@ func (m *Muxer) startLocked() error {
 	if err != nil {
 		return fmt.Errorf("parse url: %w", err)
 	}
-	transport := gortsplib.TransportTCP
+	protocol := gortsplib.ProtocolTCP
 	c := &gortsplib.Client{
 		TLSConfig: &tls.Config{InsecureSkipVerify: !m.VerifyTLS}, //nolint:gosec
-		Transport: &transport,
+		Protocol:  &protocol,
 		Scheme:    u.Scheme,
 		Host:      u.Host,
 	}
-	if err := c.Start2(); err != nil {
+	if err := c.Start(); err != nil {
 		return fmt.Errorf("rtsp start: %w", err)
 	}
 	desc, _, err := c.Describe(u)
@@ -444,12 +457,15 @@ func (m *Muxer) publishInit(ctx context.Context, sps, pps []byte) error {
 // guarantees a straggling fragment can never reach a newer session's
 // subscribers.
 func (m *Muxer) emitFragment(ctx context.Context, au [][]byte, baseTime uint64, seqNum, duration uint32, isIDR bool) error {
-	sample := &fmp4.Sample{}
-	if err := sample.FillH264(0, au); err != nil {
+	avcc, err := h264.AVCC(au).Marshal()
+	if err != nil {
 		return fmt.Errorf("fill sample: %w", err)
 	}
-	sample.Duration = duration
-	sample.IsNonSyncSample = !isIDR
+	sample := &fmp4.Sample{
+		Duration:        duration,
+		IsNonSyncSample: !isIDR,
+		Payload:         avcc,
+	}
 
 	part := &fmp4.Part{
 		SequenceNumber: seqNum,
@@ -634,19 +650,44 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	mux.ServeHTTP(w, r)
 }
 
+// muxerFor resolves camID on every request rather than trusting the cached
+// muxer: a camera that was hidden or removed must stop serving immediately,
+// and one whose RTSP URL changed (stream re-enabled in Protect) must not
+// keep dialing the dead address.
 func (s *Server) muxerFor(camID string) *Muxer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if mux, ok := s.muxers[camID]; ok {
-		return mux
-	}
 	url, verify, ok := s.LookupRTSP(camID)
+	mux, exists := s.muxers[camID]
+	if exists && (!ok || mux.RTSPURL != url || mux.VerifyTLS != verify) {
+		mux.Close()
+		delete(s.muxers, camID)
+		exists = false
+	}
 	if !ok {
 		return nil
 	}
-	mux := NewMuxer(camID, url, verify)
+	if exists {
+		return mux
+	}
+	mux = NewMuxer(camID, url, verify)
 	s.muxers[camID] = mux
 	return mux
+}
+
+// Prune closes the muxers of cameras that are no longer exposed, were
+// removed, or changed upstream URL. Closing a muxer disconnects its
+// subscribers, so long-lived progressive streams are cut off at once.
+func (s *Server) Prune() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, mux := range s.muxers {
+		url, verify, ok := s.LookupRTSP(id)
+		if !ok || mux.RTSPURL != url || mux.VerifyTLS != verify {
+			mux.Close()
+			delete(s.muxers, id)
+		}
+	}
 }
 
 // Shutdown closes every active Muxer.

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -38,6 +39,11 @@ type Reconciler struct {
 	// firstRefreshDone flips on the first refresh, whose diff against the
 	// empty snapshot would otherwise count every camera as "added".
 	firstRefreshDone atomic.Bool
+	// refreshMu serializes Refresh: the safety ticker and the debounced
+	// WS trigger run it from different goroutines, and two concurrent
+	// diffs against the same previous snapshot would double-register
+	// streams and double-fire RequestSync.
+	refreshMu sync.Mutex
 }
 
 // NewReconciler wires a Reconciler. hg may be nil (HomeGraph disabled).
@@ -271,6 +277,10 @@ func (r *Reconciler) watchEvents(ctx context.Context, fire func()) {
 // online-state change calls ReportState. Returns the controller's
 // lastUpdateID so the WS subscription can resume from the right cursor.
 func (r *Reconciler) Refresh(ctx context.Context) (string, error) {
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+
+	gen := r.src.onlineGeneration()
 	cams, lastUpdateID, err := r.unifi.Bootstrap(ctx)
 	if err != nil {
 		return "", err
@@ -288,6 +298,8 @@ func (r *Reconciler) Refresh(ctx context.Context) (string, error) {
 	ghomeCams := make([]ghome.Camera, 0, len(cams))
 	onlineChanged := map[string]map[string]any{}
 
+	streamsChanged := false
+
 	for _, cam := range cams {
 		seen[cam.ID] = struct{}{}
 		next := ghome.Camera{
@@ -297,8 +309,14 @@ func (r *Reconciler) Refresh(ctx context.Context) (string, error) {
 			Model:        cam.Model,
 			Online:       cam.Online,
 		}
+		p, had := prev[cam.ID]
+		// A WS event that landed while the bootstrap was in flight is
+		// newer than the snapshot; keep it rather than flapping back.
+		if had && r.src.onlineChangedSince(cam.ID, gen) {
+			next.Online = p.Online
+		}
 		ghomeCams = append(ghomeCams, next)
-		if p, had := prev[cam.ID]; had {
+		if had {
 			if p.Online != next.Online {
 				onlineChanged[cam.ID] = map[string]any{"online": next.Online}
 			}
@@ -309,23 +327,9 @@ func (r *Reconciler) Refresh(ctx context.Context) (string, error) {
 			onlineChanged[cam.ID] = map[string]any{"online": next.Online}
 		}
 
-		if _, exists := r.reg.Get(cam.ID); exists {
-			continue
+		if r.syncStream(cam) {
+			streamsChanged = true
 		}
-		ch := cam.BestRTSPChannel()
-		if ch == nil {
-			log.Printf("camera %s (%s): no RTSP-enabled channel, skipping", cam.ID, cam.Name)
-			continue
-		}
-		url, err := r.unifi.StreamURL(cam, *ch)
-		if err != nil {
-			log.Printf("camera %s: stream url: %v", cam.ID, err)
-			continue
-		}
-		prod := rtsp.NewProducer(cam.ID, url, r.verifyTLS)
-		r.reg.Put(streams.NewStream(cam.ID, prod))
-		r.src.setRTSPURL(cam.ID, url, r.verifyTLS)
-		log.Printf("registered camera %s (%s) %dx%d", cam.ID, cam.Name, ch.Width, ch.Height)
 	}
 
 	added := 0
@@ -337,7 +341,8 @@ func (r *Reconciler) Refresh(ctx context.Context) (string, error) {
 	removed := 0
 	for _, name := range r.reg.Names() {
 		if _, ok := seen[name]; !ok {
-			r.reg.Delete(name)
+			r.unregisterStream(name)
+			streamsChanged = true
 			log.Printf("removed camera %s", name)
 			if r.src.IsAllowed(name) {
 				removed++
@@ -378,8 +383,54 @@ func (r *Reconciler) Refresh(ctx context.Context) (string, error) {
 			}()
 		}
 	}
+	if streamsChanged {
+		r.src.notifyStreamsChanged()
+	}
 	r.src.setLastUpdateID(lastUpdateID)
 	return lastUpdateID, nil
+}
+
+// syncStream makes the registered stream for cam match its current best
+// RTSP channel: registers it on first sight, re-registers it when the URL
+// changed (RTSP toggled off/on in Protect issues a new alias), and drops
+// it when no channel has RTSP enabled any more. Reports whether anything
+// changed.
+func (r *Reconciler) syncStream(cam unifi.Camera) bool {
+	cur, registered := r.src.rtspURL(cam.ID)
+	ch := cam.BestRTSPChannel()
+	if ch == nil {
+		if registered {
+			log.Printf("camera %s (%s): RTSP disabled, unregistering stream", cam.ID, cam.Name)
+			r.unregisterStream(cam.ID)
+			return true
+		}
+		log.Printf("camera %s (%s): no RTSP-enabled channel, skipping", cam.ID, cam.Name)
+		return false
+	}
+	url, err := r.unifi.StreamURL(cam, *ch)
+	if err != nil {
+		log.Printf("camera %s: stream url: %v", cam.ID, err)
+		return false
+	}
+	if registered && url == cur {
+		return false
+	}
+	// Sessions already holding the old Stream keep their reference and
+	// release it normally; new sessions pick up the replacement.
+	prod := rtsp.NewProducer(cam.ID, url, r.verifyTLS)
+	r.reg.Put(streams.NewStream(cam.ID, prod))
+	r.src.setRTSPURL(cam.ID, url, r.verifyTLS)
+	if registered {
+		log.Printf("camera %s (%s): stream URL changed, re-registered", cam.ID, cam.Name)
+	} else {
+		log.Printf("registered camera %s (%s) %dx%d", cam.ID, cam.Name, ch.Width, ch.Height)
+	}
+	return true
+}
+
+func (r *Reconciler) unregisterStream(camID string) {
+	r.reg.Delete(camID)
+	r.src.deleteRTSPURL(camID)
 }
 
 // decodeOnline extracts the online flag from a Protect WS update payload.

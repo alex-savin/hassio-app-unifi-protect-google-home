@@ -20,6 +20,16 @@ type CameraSource struct {
 	// Google Home. nil means "allow all" (backward-compatible default for
 	// installs without bridge.exposed_cameras configured).
 	allowed map[string]bool
+	// onlineGen[camID] is the value of gen when the camera's online flag
+	// was last flipped by a live WS event. Refresh compares it against the
+	// gen it sampled before fetching the bootstrap so a slow, stale
+	// snapshot cannot undo a newer WS-observed transition.
+	gen       uint64
+	onlineGen map[string]uint64
+	// streamsChanged is invoked (outside mu) whenever the allow-list or
+	// the set of RTSP URLs changes, so the HLS/MP4 servers can drop
+	// muxers that must no longer serve.
+	streamsChanged func()
 }
 
 // NewCameraSource returns a CameraSource with the given exposure
@@ -92,9 +102,48 @@ func (s *CameraSource) setOnline(camID string, online bool) (bool, ghome.Camera,
 			return false, c, true
 		}
 		s.cameras[i].Online = online
+		s.gen++
+		if s.onlineGen == nil {
+			s.onlineGen = make(map[string]uint64)
+		}
+		s.onlineGen[camID] = s.gen
 		return true, s.cameras[i], true
 	}
 	return false, ghome.Camera{}, false
+}
+
+// onlineGeneration returns the current WS state-change generation. Sample
+// it before fetching a bootstrap and pass it to onlineChangedSince.
+func (s *CameraSource) onlineGeneration() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.gen
+}
+
+// onlineChangedSince reports whether a WS event flipped camID's online
+// flag after generation g was sampled.
+func (s *CameraSource) onlineChangedSince(camID string, g uint64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.onlineGen[camID] > g
+}
+
+// OnStreamsChanged registers the callback fired whenever a camera's
+// stream eligibility may have changed (allow-list edit, camera removed,
+// RTSP URL changed). Set it once during wiring.
+func (s *CameraSource) OnStreamsChanged(f func()) {
+	s.mu.Lock()
+	s.streamsChanged = f
+	s.mu.Unlock()
+}
+
+func (s *CameraSource) notifyStreamsChanged() {
+	s.mu.RLock()
+	f := s.streamsChanged
+	s.mu.RUnlock()
+	if f != nil {
+		f()
+	}
 }
 
 // Snapshot returns a copy of the current camera list.
@@ -111,23 +160,20 @@ func (s *CameraSource) Snapshot() []ghome.Camera {
 // ListCameras calls and signaling URL lookups honour the new set
 // immediately, so the setup UI can hot-apply changes without restarting.
 func (s *CameraSource) SetAllowed(ids []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(ids) == 0 {
-		s.allowed = nil
-		return
-	}
-	set := make(map[string]bool, len(ids))
+	var set map[string]bool
 	for _, id := range ids {
-		if id != "" {
-			set[id] = true
+		if id == "" {
+			continue
 		}
+		if set == nil {
+			set = make(map[string]bool, len(ids))
+		}
+		set[id] = true
 	}
-	if len(set) == 0 {
-		s.allowed = nil
-		return
-	}
+	s.mu.Lock()
 	s.allowed = set
+	s.mu.Unlock()
+	s.notifyStreamsChanged()
 }
 
 // IsAllowed reports whether the camera is currently exposed to Google.
@@ -200,6 +246,23 @@ func (s *CameraSource) setRTSPURL(camID, url string, verifyTLS bool) {
 	}
 	s.rtspURLs[camID] = rtspEntry{URL: url, VerifyTLS: verifyTLS}
 	s.mu.Unlock()
+}
+
+// deleteRTSPURL forgets a camera's RTSP URL (camera removed or its RTSP
+// channel disabled).
+func (s *CameraSource) deleteRTSPURL(camID string) {
+	s.mu.Lock()
+	delete(s.rtspURLs, camID)
+	s.mu.Unlock()
+}
+
+// rtspURL returns the recorded RTSP URL for a camera regardless of the
+// exposure allow-list.
+func (s *CameraSource) rtspURL(camID string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	e, ok := s.rtspURLs[camID]
+	return e.URL, ok
 }
 
 // RTSPURLOf is the hls.Source/mp4.Source signature: returns the upstream

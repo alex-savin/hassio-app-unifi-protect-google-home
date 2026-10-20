@@ -23,11 +23,11 @@ import (
 	"sync"
 	"time"
 
-	gortsplib "github.com/bluenviron/gortsplib/v4"
-	"github.com/bluenviron/gortsplib/v4/pkg/base"
-	"github.com/bluenviron/gortsplib/v4/pkg/description"
-	"github.com/bluenviron/gortsplib/v4/pkg/format"
-	"github.com/bluenviron/gortsplib/v4/pkg/format/rtph264"
+	gortsplib "github.com/bluenviron/gortsplib/v5"
+	"github.com/bluenviron/gortsplib/v5/pkg/base"
+	"github.com/bluenviron/gortsplib/v5/pkg/description"
+	"github.com/bluenviron/gortsplib/v5/pkg/format"
+	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph264"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
@@ -105,14 +105,14 @@ func (p *Producer) connect() (*gortsplib.Client, *format.H264, error) {
 		return nil, nil, fmt.Errorf("parse url: %w", err)
 	}
 
-	transport := gortsplib.TransportTCP
+	protocol := gortsplib.ProtocolTCP
 	c := &gortsplib.Client{
 		TLSConfig: &tls.Config{InsecureSkipVerify: !p.VerifyTLS}, //nolint:gosec
-		Transport: &transport,
+		Protocol:  &protocol,
 		Scheme:    u.Scheme,
 		Host:      u.Host,
 	}
-	if err := c.Start2(); err != nil {
+	if err := c.Start(); err != nil {
 		return nil, nil, fmt.Errorf("rtsp start: %w", err)
 	}
 

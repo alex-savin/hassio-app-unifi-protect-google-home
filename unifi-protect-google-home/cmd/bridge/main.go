@@ -75,7 +75,7 @@ func run() int {
 	if setupSrv != nil {
 		setupHTTP = &http.Server{
 			Addr:              *setupAddr,
-			Handler:           setupSrv.Routes(),
+			Handler:           setup.IngressOnly(setupSrv.Routes()),
 			ReadHeaderTimeout: 10 * time.Second,
 		}
 		go func() {
@@ -217,13 +217,24 @@ func run() int {
 		WebRTC:            factory,
 		HLS:               hlsSrv,
 		MP4:               mp4Srv,
+		Allowed:           src.IsAllowed,
 	}
 	src.SetSignaling(apiSrv)
+	src.OnStreamsChanged(func() {
+		hlsSrv.Prune()
+		mp4Srv.Prune()
+	})
 
+	// ReadTimeout bounds how long a client may take to send a request
+	// (slow-body attacks on /oauth/*); it does not limit how long a
+	// response may stream. No WriteTimeout: HLS/MP4 responses stream
+	// indefinitely, and the MP4 handler sets per-write deadlines instead.
 	httpSrv := &http.Server{
 		Addr:              cfg.Bridge.ListenAddr,
 		Handler:           apiSrv.Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	srvErr := make(chan error, 1)

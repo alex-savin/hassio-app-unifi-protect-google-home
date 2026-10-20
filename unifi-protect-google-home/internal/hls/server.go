@@ -65,19 +65,45 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	mux.ServeHTTP(w, &r2)
 }
 
+// muxerFor resolves camID on every request rather than trusting the cached
+// muxer: a camera that was hidden or removed must stop serving immediately,
+// and one whose RTSP URL changed (stream re-enabled in Protect) must not
+// keep dialing the dead address.
 func (s *Server) muxerFor(camID string) *Muxer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if m, ok := s.muxers[camID]; ok {
-		return m
-	}
 	url, verifyTLS, ok := s.LookupRTSP(camID)
+	m, exists := s.muxers[camID]
+	if exists && (!ok || m.RTSPURL != url || m.VerifyTLS != verifyTLS) {
+		m.Close()
+		delete(s.muxers, camID)
+		exists = false
+	}
 	if !ok {
 		return nil
 	}
-	m := NewMuxer(camID, url, verifyTLS)
+	if exists {
+		return m
+	}
+	m = NewMuxer(camID, url, verifyTLS)
 	s.muxers[camID] = m
 	return m
+}
+
+// Prune closes the muxers of cameras that are no longer exposed, were
+// removed, or changed upstream URL. Call it whenever the camera set or the
+// exposure allow-list changes so in-flight streams are cut off without
+// waiting for the next request.
+func (s *Server) Prune() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, m := range s.muxers {
+		url, verifyTLS, ok := s.LookupRTSP(id)
+		if !ok || m.RTSPURL != url || m.VerifyTLS != verifyTLS {
+			m.Close()
+			delete(s.muxers, id)
+		}
+	}
 }
 
 // Shutdown closes all muxers. Call once on bridge exit.

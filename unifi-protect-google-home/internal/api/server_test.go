@@ -12,6 +12,7 @@ import (
 
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/ghome"
 	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/oauth"
+	"github.com/alex-savin/hassio-app-unifi-protect-google-home/internal/streams"
 )
 
 const (
@@ -388,5 +389,41 @@ func TestRoutes_NoAdminDiscover(t *testing.T) {
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/admin/discover", nil))
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status=%d, want 404 (admin endpoints must not be public)", rr.Code)
+	}
+}
+
+// TestSignalHandler_HiddenCamera: a validly signed signaling URL for a
+// camera the user has since hidden must not start a session.
+func TestSignalHandler_HiddenCamera(t *testing.T) {
+	s := newTestServer()
+	s.Registry = streams.NewRegistry()
+	s.Registry.Put(streams.NewStream("cam1", nil))
+	s.Allowed = func(string) bool { return false }
+
+	exp := time.Now().Add(time.Minute).Unix()
+	q := url.Values{"cam": {"cam1"}, "exp": {strconv.FormatInt(exp, 10)}, "t": {s.signToken("cam1", exp)}}
+	req := httptest.NewRequest(http.MethodPost, "/webrtc/signal?"+q.Encode(), strings.NewReader(`{"type":"offer","sdp":"v=0"}`))
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status=%d want 404", rr.Code)
+	}
+}
+
+// TestSignalHandler_BodyLimit: oversized offers are rejected rather than
+// buffered.
+func TestSignalHandler_BodyLimit(t *testing.T) {
+	s := newTestServer()
+	s.Registry = streams.NewRegistry()
+	s.Registry.Put(streams.NewStream("cam1", nil))
+
+	exp := time.Now().Add(time.Minute).Unix()
+	q := url.Values{"cam": {"cam1"}, "exp": {strconv.FormatInt(exp, 10)}, "t": {s.signToken("cam1", exp)}}
+	body := `{"type":"offer","sdp":"` + strings.Repeat("a", maxSignalBody) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/webrtc/signal?"+q.Encode(), strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d want 400", rr.Code)
 	}
 }
