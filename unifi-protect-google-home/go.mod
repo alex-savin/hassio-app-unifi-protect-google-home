@@ -3,9 +3,9 @@ module github.com/alex-savin/hassio-app-unifi-protect-google-home
 go 1.26.0
 
 require (
-	github.com/bluenviron/gohlslib/v2 v2.4.6
+	github.com/bluenviron/gohlslib/v2 v2.4.7
 	github.com/bluenviron/gortsplib/v5 v5.6.7
-	github.com/bluenviron/mediacommon/v2 v2.9.6
+	github.com/bluenviron/mediacommon/v2 v2.9.7
 	github.com/gorilla/websocket v1.5.3
 	github.com/pion/rtp v1.10.5
 	github.com/pion/sdp/v3 v3.0.20
@@ -33,6 +33,7 @@ require (
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 )
